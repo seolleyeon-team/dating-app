@@ -1,26 +1,35 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 import '../../../data/models/community/post_model.dart';
+import '../../../data/repositories/community_repository.dart';
 import '../../../data/repositories/firestore_community_repository.dart';
-import '../../../providers/auth_provider.dart';
-import '../../../services/storage_service.dart';
 
+/// 대나무숲 목록 상태.
+///
+/// P0-3: 게시글 모델에는 작성자가 없다. "내 글" 표시는 페이지마다 비공개
+/// 소유권 매핑을 한 번 조회해 얻은 [isMine] 집합으로만 한다. 앱 전역
+/// provider 라서 로그인 계정이 바뀌면 이전 계정의 목록·"내 글" 표시·커서를
+/// 모두 버린다 — 남기면 다음 계정에게 이전 계정이 쓴 글이 "내 글" 로 보인다.
 class CommunityProvider extends ChangeNotifier {
   CommunityProvider({
-    FirestoreCommunityRepository? repository,
-    AuthProvider? authProvider,
+    CommunityRepository? repository,
+    String Function()? currentUid,
   }) : _repository = repository ?? FirestoreCommunityRepository(),
-       _authProvider = authProvider;
+       _currentUid =
+           currentUid ??
+           (() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '');
 
-  final FirestoreCommunityRepository _repository;
-  final StorageService _storageService = StorageService();
-  final AuthProvider? _authProvider;
+  final CommunityRepository _repository;
+  final String Function() _currentUid;
 
-  String? _currentUserId;
+  /// 지금 캐시된 상태가 속한 계정. 다르면 [_resetIfAccountChanged] 가 비운다.
+  String? _sessionUid;
   String _selectedTab = '전체';
   bool _isInitialized = false;
+
+  static const String myPostsTab = FirestoreCommunityRepository.myPostsTab;
 
   static const List<String> tabs = [
     '전체',
@@ -29,16 +38,14 @@ class CommunityProvider extends ChangeNotifier {
     '고민',
     '일상',
     '질문',
-    '내가 쓴 글',
+    myPostsTab,
   ];
 
   final Map<String, List<PostModel>> _postsByTab = {
     for (final tab in tabs) tab: <PostModel>[],
   };
 
-  final Map<String, DocumentSnapshot<Map<String, dynamic>>?> _lastDocByTab = {
-    for (final tab in tabs) tab: null,
-  };
+  final Map<String, Object?> _cursorByTab = {for (final tab in tabs) tab: null};
 
   final Map<String, bool> _isLoadingByTab = {
     for (final tab in tabs) tab: false,
@@ -50,9 +57,11 @@ class CommunityProvider extends ChangeNotifier {
 
   final Map<String, bool> _hasMoreByTab = {for (final tab in tabs) tab: true};
 
+  /// 화면에 나온 글 중 내가 쓴 글 (비공개 매핑 조회 결과).
+  final Set<String> _myPostIds = <String>{};
+
   String get selectedTab => _selectedTab;
   bool get isInitialized => _isInitialized;
-  String? get currentUserId => _currentUserId;
 
   List<PostModel> get posts => _postsByTab[_selectedTab] ?? const [];
   bool get isLoading => _isLoadingByTab[_selectedTab] ?? false;
@@ -64,43 +73,66 @@ class CommunityProvider extends ChangeNotifier {
   bool isLoadingMoreOf(String tab) => _isLoadingMoreByTab[tab] ?? false;
   bool hasMoreOf(String tab) => _hasMoreByTab[tab] ?? false;
 
+  /// 이 글을 로그인한 사용자가 썼는가 (삭제 버튼 vs 신고 버튼).
+  bool isMine(String postId) => _myPostIds.contains(postId);
+
+  /// 계정이 바뀌었으면 이전 계정의 모든 캐시를 버린다. 바뀌었으면 true.
+  bool _resetIfAccountChanged() {
+    final uid = _currentUid();
+    if (_sessionUid == uid) return false;
+    _sessionUid = uid;
+    for (final tab in tabs) {
+      _postsByTab[tab] = <PostModel>[];
+      _cursorByTab[tab] = null;
+      _hasMoreByTab[tab] = true;
+      _isLoadingByTab[tab] = false;
+      _isLoadingMoreByTab[tab] = false;
+    }
+    _myPostIds.clear();
+    return true;
+  }
+
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    final accountChanged = _resetIfAccountChanged();
+    if (_isInitialized && !accountChanged) return;
     _isInitialized = true;
 
-    _currentUserId = await _storageService.getKakaoUserId();
     debugPrint(
-      'CommunityProvider initialize ${PrivacyLogUtils.idFingerprint(_currentUserId)}',
+      'CommunityProvider initialize ${PrivacyLogUtils.idFingerprint(_sessionUid)}',
     );
 
     await loadPosts(tab: _selectedTab, forceRefresh: true);
   }
 
-  Future<void> _ensureCurrentUserId() async {
-    if ((_currentUserId ?? '').trim().isNotEmpty) return;
-    _currentUserId = await _storageService.getKakaoUserId();
-    if ((_currentUserId ?? '').trim().isEmpty) {
-      final fromAuth = _authProvider?.kakaoUserId;
-      if ((fromAuth ?? '').trim().isNotEmpty) _currentUserId = fromAuth;
-    }
-    debugPrint(
-      'CommunityProvider ensured ${PrivacyLogUtils.idFingerprint(_currentUserId)}',
-    );
-  }
-
   Future<void> changeTab(String tab) async {
     if (!tabs.contains(tab)) return;
+    _resetIfAccountChanged();
 
     _selectedTab = tab;
     notifyListeners();
 
-    if (tab == '내가 쓴 글') {
-      await _ensureCurrentUserId();
-    }
-
     final hasLoaded = (_postsByTab[tab] ?? []).isNotEmpty;
     if (!hasLoaded) {
       await loadPosts(tab: tab, forceRefresh: true);
+    }
+  }
+
+  Future<void> _rememberOwnership(String tab, List<PostModel> page) async {
+    if (page.isEmpty) return;
+    if (tab == myPostsTab) {
+      _myPostIds.addAll(page.map((p) => p.postId));
+      return;
+    }
+    try {
+      _myPostIds.addAll(
+        await _repository.fetchMyPostIds(page.map((p) => p.postId)),
+      );
+    } catch (e) {
+      // 조회 실패 시 "내 글" 표시만 빠진다 (삭제 대신 신고 버튼). 권한 경계는
+      // 서버 callable 이 다시 확인한다.
+      debugPrint(
+        'CommunityProvider ownership lookup error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -109,42 +141,29 @@ class CommunityProvider extends ChangeNotifier {
     bool forceRefresh = false,
   }) async {
     if (!tabs.contains(tab)) return;
+    _resetIfAccountChanged();
     if ((_isLoadingByTab[tab] ?? false) && !forceRefresh) return;
 
-    if (tab == '내가 쓴 글') {
-      await _ensureCurrentUserId();
-    }
-
+    final uidAtStart = _sessionUid;
     _isLoadingByTab[tab] = true;
 
     if (forceRefresh) {
       _postsByTab[tab] = [];
-      _lastDocByTab[tab] = null;
+      _cursorByTab[tab] = null;
       _hasMoreByTab[tab] = true;
     }
 
     notifyListeners();
 
     try {
-      debugPrint(
-        'CommunityProvider loadPosts tab=$tab ${PrivacyLogUtils.idFingerprint(_currentUserId)}',
-      );
+      final page = await _repository.fetchPostsPage(tab: tab, limit: 5);
+      // 응답을 기다리는 사이 계정이 바뀌었으면 결과를 버린다.
+      if (_currentUid() != uidAtStart) return;
+      await _rememberOwnership(tab, page.posts);
 
-      final snapshot = await _repository.fetchPostsSnapshot(
-        tab: tab,
-        currentUserId: _currentUserId,
-        limit: 5,
-        lastDocument: null,
-      );
-
-      final docs = snapshot.docs;
-      final loadedPosts = await _repository.excludeBlockedPosts(
-        docs.map(PostModel.fromFirestore),
-      );
-
-      _postsByTab[tab] = loadedPosts;
-      _lastDocByTab[tab] = docs.isNotEmpty ? docs.last : null;
-      _hasMoreByTab[tab] = docs.length == 5;
+      _postsByTab[tab] = page.posts;
+      _cursorByTab[tab] = page.cursor;
+      _hasMoreByTab[tab] = page.hasMore;
     } catch (e) {
       debugPrint(
         'CommunityProvider loadPosts error: ${PrivacyLogUtils.errorSummary(e)}',
@@ -158,39 +177,37 @@ class CommunityProvider extends ChangeNotifier {
   Future<void> loadMore({String? tab}) async {
     final targetTab = tab ?? _selectedTab;
     if (!tabs.contains(targetTab)) return;
-
-    if (targetTab == '내가 쓴 글') {
-      await _ensureCurrentUserId();
+    if (_resetIfAccountChanged()) {
+      notifyListeners();
+      return;
     }
 
     if (_isLoadingMoreByTab[targetTab] == true) return;
     if (_hasMoreByTab[targetTab] != true) return;
 
-    final lastDoc = _lastDocByTab[targetTab];
-    if (lastDoc == null) return;
+    final cursor = _cursorByTab[targetTab];
+    if (cursor == null) return;
 
+    final uidAtStart = _sessionUid;
     _isLoadingMoreByTab[targetTab] = true;
     notifyListeners();
 
     try {
-      final snapshot = await _repository.fetchPostsSnapshot(
+      final page = await _repository.fetchPostsPage(
         tab: targetTab,
-        currentUserId: _currentUserId,
         limit: 5,
-        lastDocument: lastDoc,
+        cursor: cursor,
       );
+      if (_currentUid() != uidAtStart) return;
+      await _rememberOwnership(targetTab, page.posts);
 
-      final docs = snapshot.docs;
-      final newPosts = await _repository.excludeBlockedPosts(
-        docs.map(PostModel.fromFirestore),
-      );
-
-      final currentPosts = [...(_postsByTab[targetTab] ?? <PostModel>[])];
-      currentPosts.addAll(newPosts);
-
-      _postsByTab[targetTab] = currentPosts;
-      _lastDocByTab[targetTab] = docs.isNotEmpty ? docs.last : lastDoc;
-      _hasMoreByTab[targetTab] = docs.length == 5;
+      final seen = {for (final p in _postsByTab[targetTab] ?? []) p.postId};
+      _postsByTab[targetTab] = [
+        ...(_postsByTab[targetTab] ?? <PostModel>[]),
+        ...page.posts.where((p) => !seen.contains(p.postId)),
+      ];
+      _cursorByTab[targetTab] = page.cursor;
+      _hasMoreByTab[targetTab] = page.hasMore;
     } catch (e) {
       debugPrint(
         'CommunityProvider loadMore error: ${PrivacyLogUtils.errorSummary(e)}',
@@ -202,20 +219,17 @@ class CommunityProvider extends ChangeNotifier {
   }
 
   Future<String> createPost({
-    required String authorId,
     required String content,
     required String category,
     required List<String> tags,
   }) async {
     try {
       final postId = await _repository.createPost(
-        authorId: authorId,
         content: content,
         category: category,
         tags: tags,
       );
-
-      _currentUserId ??= authorId;
+      _myPostIds.add(postId);
 
       await refreshAfterPostCreated(category: category);
       return postId;
@@ -235,7 +249,7 @@ class CommunityProvider extends ChangeNotifier {
     }
 
     await loadPosts(tab: '인기', forceRefresh: true);
-    await loadPosts(tab: '내가 쓴 글', forceRefresh: true);
+    await loadPosts(tab: myPostsTab, forceRefresh: true);
   }
 
   Future<void> refreshCurrentTab() async {
@@ -334,23 +348,36 @@ class CommunityProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> deletePost({
-    required String postId,
-    required String authorId,
-  }) async {
+  Future<void> deletePost({required String postId}) async {
     try {
-      await _repository.softDeletePost(postId: postId, authorId: authorId);
-
-      for (final tab in tabs) {
-        if ((_postsByTab[tab] ?? []).isNotEmpty || tab == _selectedTab) {
-          await loadPosts(tab: tab, forceRefresh: true);
-        }
-      }
+      await _repository.softDeletePost(postId: postId);
+      await _reloadLoadedTabs();
     } catch (e) {
       debugPrint(
         'CommunityProvider deletePost error: ${PrivacyLogUtils.errorSummary(e)}',
       );
       rethrow;
+    }
+  }
+
+  /// 대나무숲 글 신고. 서버가 신고자에게서 그 글을 숨기므로 목록을 다시 읽는다.
+  Future<void> reportPost({
+    required String postId,
+    required String reason,
+  }) async {
+    await _repository.reportContent(
+      contentType: 'bamboo_post',
+      postId: postId,
+      reason: reason,
+    );
+    await _reloadLoadedTabs();
+  }
+
+  Future<void> _reloadLoadedTabs() async {
+    for (final tab in tabs) {
+      if ((_postsByTab[tab] ?? []).isNotEmpty || tab == _selectedTab) {
+        await loadPosts(tab: tab, forceRefresh: true);
+      }
     }
   }
 

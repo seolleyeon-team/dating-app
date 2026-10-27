@@ -2,9 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PostModel {
   final String postId;
-  final String authorId;
 
-  /// 대나무숲은 익명 기반이라 화면에서는 보통 authorId를 직접 노출하지 않음
+  /// 대나무숲은 익명 게시판이다 (P0-3). public 문서에는 작성자 정보가 없고,
+  /// 이 모델도 작성자를 담지 않는다. "내 글인가" 는 비공개 소유권 매핑으로만
+  /// 판단한다 (`FirestoreCommunityRepository.fetchMyPostIds`).
   final String content;
 
   /// 상단 탭용 카테고리
@@ -28,7 +29,6 @@ class PostModel {
 
   const PostModel({
     required this.postId,
-    required this.authorId,
     required this.content,
     required this.category,
     required this.tags,
@@ -43,7 +43,6 @@ class PostModel {
   factory PostModel.empty() {
     return const PostModel(
       postId: '',
-      authorId: '',
       content: '',
       category: '전체',
       tags: [],
@@ -58,7 +57,6 @@ class PostModel {
 
   PostModel copyWith({
     String? postId,
-    String? authorId,
     String? content,
     String? category,
     List<String>? tags,
@@ -71,7 +69,6 @@ class PostModel {
   }) {
     return PostModel(
       postId: postId ?? this.postId,
-      authorId: authorId ?? this.authorId,
       content: content ?? this.content,
       category: category ?? this.category,
       tags: tags ?? this.tags,
@@ -87,7 +84,6 @@ class PostModel {
   Map<String, dynamic> toMap() {
     return {
       'postId': postId,
-      'authorId': authorId,
       'content': content,
       'category': category,
       'tags': tags,
@@ -103,7 +99,6 @@ class PostModel {
   factory PostModel.fromMap(Map<String, dynamic> map, {String? documentId}) {
     return PostModel(
       postId: (map['postId'] ?? documentId ?? '').toString(),
-      authorId: (map['authorId'] ?? '').toString(),
       content: (map['content'] ?? '').toString(),
       category: (map['category'] ?? '전체').toString(),
       tags: _parseTags(map['tags']),

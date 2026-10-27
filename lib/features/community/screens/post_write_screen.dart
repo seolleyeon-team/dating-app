@@ -107,7 +107,6 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
       final provider = context.read<CommunityProvider>();
 
       final postId = await provider.createPost(
-        authorId: appUserId,
         content: _currentText.trim(),
         category: _selectedCategory,
         tags: [_selectedCategory],
