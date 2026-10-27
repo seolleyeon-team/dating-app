@@ -803,3 +803,58 @@ ENABLED, 98 functions, `onChatMessageCreated` untouched (`00009-mod`,
 - LEGACY RULES RETIREMENT DEFERRED (NEW-18, transitional own-uid tolerance,
   release-dependent).
 - CLIENT RELEASE VERIFICATION DEFERRED (owner).
+
+## Final verification (2026-10-27) — independent re-check of every claim
+
+Fresh evidence only; historical results were re-derived, not copied.
+
+| Area | Evidence | Kind |
+|---|---|---|
+| Integration | `security/integration` = `874cb3aa` (PR #151 merged 15:42Z); PRs #147–#151 merged; worktrees clean, the owner's unrelated changes intact | VERIFIED LIVE (GitHub) |
+| Matching tick | `blindmeetingmatchingtick-00004-xih`, ACTIVE, Ready 100 %, nodejs22 / 256 Mi / 60 s / max 2, SA `810450765203-compute@…` (also the scheduler OIDC identity and the only `run.invoker`), 37 env keys, 0 secret refs | VERIFIED LIVE |
+| Live ↔ source | the deployed archive (generation `1793112982992503`) is byte-identical to `874cb3aa` `functions/src` + `package*.json` (216/216 files) | VERIFIED LIVE |
+| Env | read-only guard with no declarations: matching tick 37, lifecycle tick 37, `onChatMessageCreated` 38 live keys — PASS, 0 added / 0 removed / 0 changed / 0 missing; dotenv contract PASS | VERIFIED LIVE |
+| Scheduler | matching: ENABLED, every 10 min Asia/Seoul, retryCount 2, status OK; 7/7 scheduled runs since the deploy returned 200 (0.48–0.58 s after a 2.18 s cold start; pre-deploy baseline 0.44–0.69 s), each logging `blindMeeting scheduled matching` with `createdMeetings: 0`; the 4 × 403 at 14:57:31 are deploy-time probes 2 s after rollout, off the cadence. Lifecycle: ENABLED, every 5 min, 290/290 requests 200 in 24 h, 0 `scheduled step failed` | VERIFIED LIVE |
+| Replacement workload | 2 blind meetings (`awaiting_acceptance`, `chat_open`), none with an active search, 0 `meeting_cancel_refund` records — the replacement branches have **not** been exercised in production | VERIFIED LIVE (read-only) |
+| Replacement branches | emulator suite A–G 7/7 (fill, concurrency, deadline cancel + refund once, deferral, stale-flag liveness, fill/cancel race, in-transaction refund set) + blind FSM / no-deposit / gender 87/87 | VERIFIED EMULATOR |
+| Unread trigger | `onchatmessagecreated-00009-mod`, `RETRY_POLICY_RETRY`, Eventarc `onchatmessagecreated-826606` / `…-sub-487`; 0 errors in 7 days; digest finished daily 10-21 … 10-27 | VERIFIED LIVE |
+| Rules | live ruleset `0b9d5a12…` byte-identical to `874cb3aa` `firestore.rules`; `onlyOwnUnreadReadStateUpdate`, server-owned model keys, marker refusal, P0-1 `emailLinkTokenBindsCallerTo` / `studentEmailBindingNamesTarget` present; NEW-18 helpers present; `onlyMessageReadReceiptUpdate` absent | VERIFIED LIVE |
+| Data | `--verify` (CLI rebuilt from source): rooms 23, model 23/23, structural 0, mismatches 0, unverifiable 0, skipped 0; 50 participant slots, 2 `lastReadAt` keys (NEW-14), 25/25 messages accounted, 0 negative counters; boundary dry-run 0 to initialise / 2 already bounded / 0 writes | VERIFIED LIVE (read-only) |
+| Smoke | strict v3 33/33 and group 21/21 ran 2026-10-27 ~15:00–15:05Z, after the matching-tick deploy, against `00009-mod` and ruleset `0b9d5a12…`, residue 0. Unread backend and rules unchanged since, so not re-run | HISTORICAL EVIDENCE (still current) |
+| Tests | functions unit 1125/1125, P0-2 + drift emulator 39/39, P0-1 14/14, `rules_tests` 259/259, Flutter chat 29/29, `flutter analyze` clean | VERIFIED EMULATOR / STATIC |
+| Cost | legacy port fails exactly A/B/C/L (168 reads, 600 writes, 120 docs, 120 message reads); new port passes (3 / 1 / 50 / 0); trigger cost 2 reads + 2 writes per message | VERIFIED EMULATOR |
+| CI | PR #151 run 40526784032 and PR #152 run 40540169223: 10/11 green incl. every emulator step (P0-1, P0-2, drift, replacement); `Flutter analyze/test` red — analyze clean, 1163 passed / 18 failed, the unchanged pre-existing set (NEW-13) | VERIFIED LIVE (GitHub) |
+
+### Defects found (blind-meeting, not unread) — NEW-19
+
+Auditing the replacement flow that both ticks run found two correctness
+defects; both were reproduced by failing emulator tests and fixed in PR #152:
+
+- **Stale search pauses all matching.** `cancelMeeting` (reached by the
+  lifecycle tick's schedule finalizer, the five-person vote and the ops
+  rematch) leaves `replacementSearchActive` true; the fill and deadline paths
+  returned early, and the matching tick deferred ordinary matching
+  indefinitely. Fixed: the processor closes a cancelled meeting's search, and
+  the deadline path clears it.
+- **Deadline cancel after a concurrent fill.** The cancel neither re-checked
+  the search inside its transaction nor read the refund set there, so a fill
+  landing in between produced a cancelled meeting with a confirmed newcomer.
+  Fixed: decided entirely inside the transaction.
+
+Status: PR #152 open with CI as above; the merge is blocked pending owner
+review, so the fix is not deployed. Production exposure is currently none.
+
+Other observations: one blind meeting is still in the legacy
+`awaiting_acceptance` state (handled by the lifecycle normaliser; blind-meeting
+scope, not P0-2). The replacement fill loads all open applications per search
+(`loadAllOpenApplications`) — a matching-engine cost proportional to the
+waiting pool, independent of chat history and of the P0-2 unread cost. The
+alert policy "Chat unread accounting failed" is enabled but the project has
+**0 notification channels** (NEW-11).
+
+### Closure decision
+
+- P0-2 SOURCE CLOSED · DATA VERIFIED · BACKEND CLOSED · **CORE TECHNICAL CLOSED**.
+- NEW-18 LEGACY RULES RETIREMENT: DEFERRED.
+- CLIENT RELEASE VERIFICATION: DEFERRED BY OWNER.
+- NEW-19 (blind-meeting replacement) tracked separately: fix in review.
