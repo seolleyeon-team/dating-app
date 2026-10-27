@@ -33,11 +33,12 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 initializeApp({ projectId: process.env.GCLOUD_PROJECT ?? "demo-blind-replacement" });
 
 import {
+  cancelReplacementFailedMeeting,
   fillBlindMeetingVacancies,
   leaveBlindMeeting,
   processBlindMeetingReplacementSearches,
 } from "./automaticReplacement";
-import { runMatchingForDate } from "./orchestrator";
+import { cancelMeeting, runMatchingForDate } from "./orchestrator";
 import { blindMeetingMatchingTick } from "./scheduled";
 
 let db: Firestore;
@@ -285,4 +286,91 @@ test("D: matching tick defers new 3:3s while a replacement search is open, and r
   assert.equal((await meetingData(meetingId)).serverStatus, "cancelled");
   newMeetings = await db.collection("blindMeetings").where("participantIds", "array-contains", pool[0].userId).get();
   assert.equal(newMeetings.size, 1, "the waiting pool is matched once the search is over");
+});
+
+// ---------------------------------------------------------------------------
+// Liveness and race regressions (2026-10-27 final verification)
+// ---------------------------------------------------------------------------
+
+const runMatchingTick = () =>
+  (blindMeetingMatchingTick as unknown as { run: (e: unknown) => Promise<unknown> }).run({ scheduleTime: new Date().toISOString() });
+
+async function seedWaitingPool(dateKey: string): Promise<string[]> {
+  const tag = tagOf();
+  const pool = [
+    ...[1, 2, 3].map((i) => ({ userId: `${tag}_m${i}`, gender: "male" as const })),
+    ...[1, 2, 3].map((i) => ({ userId: `${tag}_f${i}`, gender: "female" as const })),
+  ];
+  for (const seed of pool) await seedApplicant(seed, [dateKey]);
+  return pool.map((p) => p.userId);
+}
+
+async function meetingsOf(uid: string) {
+  return db.collection("blindMeetings").where("participantIds", "array-contains", uid).get();
+}
+
+test("E: a meeting cancelled through another path while its search is open must not pause ordinary matching forever", async () => {
+  const { meetingId, males } = await matchMeeting(dateKeyInWindow(4));
+  await leaveBlindMeeting({ meetingId, userId: males[0] });
+  assert.equal((await meetingData(meetingId)).replacementSearchActive, true);
+
+  // e.g. lifecycle `finalizeExpiredScheduleVotes` → cancelMeeting("schedule_window_expired"),
+  // or the ops rematch path. Neither knows about the replacement search.
+  await cancelMeeting(meetingId, "schedule_window_expired");
+  assert.equal((await meetingData(meetingId)).serverStatus, "cancelled");
+
+  const pool = await seedWaitingPool(dateKeyInWindow(11));
+  await runMatchingTick();
+  assert.equal((await meetingData(meetingId)).replacementSearchActive, false, "a cancelled meeting's search is closed");
+  assert.equal((await meetingsOf(pool[0])).size, 1, "ordinary matching resumes instead of deferring forever");
+
+  // Even after the deadline the stale search must not stay open either.
+  await db.collection("blindMeetings").doc(meetingId).set({ replacementSearchActive: true, replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() - 1_000) }, { merge: true });
+  await processBlindMeetingReplacementSearches();
+  assert.equal((await meetingData(meetingId)).replacementSearchActive, false, "deadline path also clears a stale flag");
+});
+
+test("F: a fill that commits before the deadline cancel runs must not end in a cancelled meeting with a confirmed newcomer", async () => {
+  const dateKey = dateKeyInWindow(5);
+  const { meetingId, males, females } = await matchMeeting(dateKey);
+  const leaver = males[1];
+  await leaveBlindMeeting({ meetingId, userId: leaver });
+  const replacement = `${tagOf()}_m_late`;
+  await seedApplicant({ userId: replacement, gender: "male" }, [dateKey]);
+  // The deadline passes while a tick's search snapshot still lists the meeting...
+  await db.collection("blindMeetings").doc(meetingId).set({ replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() - 1_000) }, { merge: true });
+  // ...and another path (a second leave, or the other tick before the deadline) fills the seat first.
+  assert.equal(await fillBlindMeetingVacancies(meetingId), 1);
+  assert.equal((await meetingData(meetingId)).replacementSearchActive, false);
+  // Now the stale cancel from the first snapshot runs.
+  await cancelReplacementFailedMeeting(meetingId);
+
+  const meeting = await meetingData(meetingId);
+  assert.notEqual(meeting.serverStatus, "cancelled", "a filled meeting is not cancelled by a stale deadline");
+  assert.ok((meeting.participantIds as string[]).includes(replacement));
+  assert.equal((await participantData(meetingId, replacement)).serverStatus, "confirmed");
+  const room = (await (await roomOf(meetingId)).get()).data() ?? {};
+  assert.notEqual(room.status, "archived");
+  for (const uid of [...males, ...females].filter((u) => u !== leaver)) {
+    assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${uid}: no refund for a meeting that goes ahead`);
+  }
+});
+
+test("G: the deadline cancel refunds exactly the members confirmed at commit time (read inside the transaction)", async () => {
+  const { meetingId, males, females } = await matchMeeting(dateKeyInWindow(6));
+  const first = males[0];
+  await leaveBlindMeeting({ meetingId, userId: first });
+  await db.collection("blindMeetings").doc(meetingId).set({ replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() - 1_000) }, { merge: true });
+  // A second member leaves right before the cancel commits.
+  const second = females[0];
+  await leaveBlindMeeting({ meetingId, userId: second });
+  await cancelReplacementFailedMeeting(meetingId);
+  const expectedRefunded = [...males, ...females].filter((u) => u !== first && u !== second);
+  for (const uid of expectedRefunded) {
+    assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 30, uid);
+  }
+  for (const uid of [first, second]) {
+    assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${uid}: left, not refunded`);
+  }
+  assert.equal((await meetingData(meetingId)).serverStatus, "cancelled");
 });
