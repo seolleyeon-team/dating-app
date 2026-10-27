@@ -1,21 +1,43 @@
 /**
- * SEC-04 — 대나무숲 소유권 해석 (전환기).
+ * P0-3 / SEC-04 — 대나무숲 소유권의 유일한 권위.
  *
- * public `bamboo_posts` / `comments` 문서에는 아직 raw UID 가 `authorId` 로 들어
- * 있고 로그인만 하면 누구나 읽을 수 있다. 익명 글의 작성자를 특정할 수 있다는
- * 뜻이라 최종적으로는 그 필드를 없애야 한다. 그 사이 서버는 두 출처를 모두
- * 만나게 된다 — 이관된 문서는 비공개 매핑에, 아직 안 된 문서는 public
- * authorId 에만 소유자가 있다.
+ * public `bamboo_posts` / `comments` 문서는 로그인 사용자 누구나 읽는다. 그래서
+ * 그 문서에는 작성자를 가리키는 값이 하나도 없어야 한다 (raw UID, 닉네임,
+ * UID 해시 모두). 소유자는 서버와 본인만 읽을 수 있는 비공개 매핑에만 있다.
  *
- * 규칙은 단순하다. 매핑이 있으면 매핑이 정답이고, 없으면 legacy 를 임시로
- * 인정한다. 둘이 다르면 어느 쪽도 믿지 않는다 — 그 상태에서 한쪽을 고르면
- * 남의 글 알림을 엉뚱한 사람에게 보내게 된다.
+ *   bamboo_post_authors/{postId}                       { postId, ownerUid }
+ *   bamboo_comment_authors/{postId}__{commentId}       { postId, commentId, ownerUid }
+ *   (Play 심사 파티션: playReviewBambooPostAuthors / playReviewBambooCommentAuthors)
  *
- * public authorId 제거가 끝나면 `legacy` 분기만 걷어내면 된다.
+ * public `authorId` 로 되돌아가는 fallback 은 없다. 매핑이 없거나 깨졌으면
+ * 소유자를 모르는 것이고, 그때는 아무에게도 알리지 않고 아무 권한도 주지 않는다
+ * (fail closed). users / publicProfiles 를 뒤져 추측하지 않는다 — 그건 우리가
+ * 없애려는 바로 그 join 이다.
  */
 
 export const BAMBOO_POST_OWNER_COLLECTION = "bamboo_post_authors";
 export const BAMBOO_COMMENT_OWNER_COLLECTION = "bamboo_comment_authors";
+export const REVIEW_BAMBOO_POST_OWNER_COLLECTION = "playReviewBambooPostAuthors";
+export const REVIEW_BAMBOO_COMMENT_OWNER_COLLECTION = "playReviewBambooCommentAuthors";
+
+/**
+ * public 대나무숲 문서에 다시는 들어가면 안 되는 필드. 서버 writer 테스트와
+ * 마이그레이션 verify 가 같은 목록을 쓴다.
+ */
+export const BAMBOO_PUBLIC_IDENTITY_FIELDS = [
+  "authorId",
+  "authorUid",
+  "ownerUid",
+  "userId",
+  "uid",
+  "actorId",
+  "actorName",
+  "nickname",
+  "authorName",
+  "authorNickname",
+  "authorProfileUrl",
+  "profileId",
+] as const;
 
 /** 댓글은 글 하위라 commentId 만으로는 유일하지 않다. */
 export function bambooCommentOwnerDocId(
@@ -27,40 +49,43 @@ export function bambooCommentOwnerDocId(
 
 export type BambooOwnerResolution =
   | { status: "mapped"; ownerUid: string }
-  /** 아직 이관되지 않은 문서. public authorId 제거와 함께 사라진다. */
-  | { status: "legacy"; ownerUid: string }
+  /** 매핑이 없다. 소유자를 모른다. */
   | { status: "missing" }
-  /** 매핑과 legacy 가 서로 다른 사람을 가리킨다. 알림을 보내지 않는다. */
-  | { status: "conflict" };
+  /** 매핑은 있지만 ownerUid 가 비었거나 다른 글/댓글을 가리킨다. */
+  | { status: "malformed" };
 
 function clean(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function resolveBambooOwner(
-  mappedOwnerUid: unknown,
-  legacyAuthorId: unknown
-): BambooOwnerResolution {
-  const mapped = clean(mappedOwnerUid);
-  const legacy = clean(legacyAuthorId);
-
-  if (mapped && legacy && mapped !== legacy) {
-    return { status: "conflict" };
-  }
-  if (mapped) return { status: "mapped", ownerUid: mapped };
-  if (legacy) return { status: "legacy", ownerUid: legacy };
-  return { status: "missing" };
-}
-
 /**
- * 알림 대상으로 쓸 uid. 소유자를 확신할 수 없으면 빈 문자열을 돌려 호출부가
- * 아무에게도 보내지 않게 한다 — 여기서 users / publicProfiles 를 뒤져
- * 추측하지 않는다. 그건 우리가 없애려는 바로 그 join 이다.
+ * 매핑 문서 하나로 소유자를 정한다. `expected` 는 매핑 문서가 가리켜야 하는
+ * postId / commentId 다 — 다른 글의 매핑이 잘못된 키에 놓인 경우를 걸러낸다.
  */
-export function ownerUidForNotification(
-  resolution: BambooOwnerResolution
-): string {
-  return resolution.status === "mapped" || resolution.status === "legacy"
-    ? resolution.ownerUid
-    : "";
+export function resolveBambooOwner(
+  mapping: Record<string, unknown> | undefined | null,
+  expected: { postId: string; commentId?: string }
+): BambooOwnerResolution {
+  if (mapping == null) return { status: "missing" };
+  const ownerUid = clean(mapping.ownerUid);
+  if (!ownerUid) return { status: "malformed" };
+  if (clean(mapping.postId) && clean(mapping.postId) !== expected.postId) {
+    return { status: "malformed" };
+  }
+  if (
+    expected.commentId != null &&
+    clean(mapping.commentId) &&
+    clean(mapping.commentId) !== expected.commentId
+  ) {
+    return { status: "malformed" };
+  }
+  return { status: "mapped", ownerUid };
 }
+
+/** 소유자를 확신할 수 없으면 빈 문자열 — 호출부는 아무에게도 보내지 않는다. */
+export function ownerUidOrEmpty(resolution: BambooOwnerResolution): string {
+  return resolution.status === "mapped" ? resolution.ownerUid : "";
+}
+
+/** 대나무숲 알림에서 행위자를 나타내는 유일한 값. */
+export const BAMBOO_ANONYMOUS_ACTOR_NAME = "익명";

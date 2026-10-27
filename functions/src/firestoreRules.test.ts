@@ -242,7 +242,7 @@ test("canonical app session gates the interactive surfaces (auth re-architecture
   );
   assertContains(
     "bamboo post create is server-only so moderation cannot be bypassed",
-    "match /bamboo_posts/{postId} { allow get, list: if isSignedIn() && !isPlayReviewSession(); // New public posts are written exclusively by createCommunityPost so // server-side moderation cannot be bypassed. allow create: if false;"
+    "match /bamboo_posts/{postId} { allow get, list: if isSignedIn() && !isPlayReviewSession(); allow create, delete: if false;"
   );
 });
 

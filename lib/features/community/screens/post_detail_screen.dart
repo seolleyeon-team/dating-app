@@ -56,6 +56,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   bool _isLoading = true;
   bool _isSubmittingComment = false;
+
+  /// P0-3: 내 글/댓글 여부는 비공개 소유권 매핑으로만 안다 (public 문서에는
+  /// 작성자가 없다). 실패하면 false — 삭제 대신 신고 버튼이 보일 뿐이다.
+  bool _isMyPost = false;
+  Set<String> _myCommentIds = const {};
   bool _isPostLiked = false;
   bool _didMutate = false;
 
@@ -87,6 +92,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       }
 
       final comments = await _repository.fetchComments(widget.postId);
+      final ownership = await _loadOwnership();
       bool isLiked = false;
       final likedComments = <String, bool>{};
 
@@ -112,6 +118,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         _currentUserId = userId;
         _post = post;
         _comments = comments;
+        _isMyPost = ownership.$1;
+        _myCommentIds = ownership.$2;
         _isPostLiked = isLiked;
         _likedComments = likedComments;
         _isLoading = false;
@@ -129,9 +137,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  /// (내 글인가, 내가 쓴 댓글 id) — 각각 매핑 쿼리 1번.
+  Future<(bool, Set<String>)> _loadOwnership() async {
+    try {
+      final results = await Future.wait([
+        _repository.fetchMyPostIds([widget.postId]),
+        _repository.fetchMyCommentIds(widget.postId),
+      ]);
+      return (results[0].contains(widget.postId), results[1]);
+    } catch (_) {
+      return (false, const <String>{});
+    }
+  }
+
   Future<void> _refreshDetail() async {
     final post = await _repository.fetchPostDetail(widget.postId);
     final comments = await _repository.fetchComments(widget.postId);
+    final ownership = await _loadOwnership();
 
     bool isLiked = _isPostLiked;
     if (_currentUserId != null && _currentUserId!.isNotEmpty) {
@@ -158,6 +180,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     setState(() {
       _post = post;
       _comments = comments;
+      _isMyPost = ownership.$1;
+      _myCommentIds = ownership.$2;
       _isPostLiked = isLiked;
       _likedComments = likedComments;
     });
@@ -213,23 +237,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Future<void> _deletePost() async {
     final post = _post;
-    final currentUserId = _currentUserId;
-    if (post == null ||
-        !isCommunityPostOwner(
-          currentUserId: currentUserId,
-          authorId: post.authorId,
-        )) {
-      return;
-    }
+    if (post == null || !_isMyPost) return;
 
     final confirmed = await confirmCommunityPostDeletion(context);
     if (!confirmed || !mounted) return;
 
     try {
-      await _repository.softDeletePost(
-        postId: post.postId,
-        authorId: currentUserId!,
-      );
+      await _repository.softDeletePost(postId: post.postId);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (_) {
@@ -244,30 +258,35 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final post = _post;
     final userId = _currentUserId;
     if (post == null || userId == null || userId.isEmpty) return;
-    await showCommunityReportAndBlockFlow(
+    final reported = await showCommunityReportFlow(
       context: context,
-      reporterId: userId,
-      reportedUserId: post.authorId,
-      source: 'bamboo_post',
-      contentType: 'bamboo_post',
-      contentId: post.postId,
+      targetLabel: '글',
+      submit: (reason) => _repository.reportContent(
+        contentType: 'bamboo_post',
+        postId: post.postId,
+        reason: reason,
+      ),
     );
-    if (mounted) Navigator.of(context).pop(true);
+    if (reported && mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _reportComment(CommunityCommentModel comment) async {
     final userId = _currentUserId;
     if (userId == null || userId.isEmpty) return;
-    await showCommunityReportAndBlockFlow(
+    final reported = await showCommunityReportFlow(
       context: context,
-      reporterId: userId,
-      reportedUserId: comment.authorId,
-      source: 'bamboo_comment',
-      contentType: 'bamboo_comment',
-      contentId: comment.commentId,
-      parentContentId: widget.postId,
+      targetLabel: '댓글',
+      submit: (reason) => _repository.reportContent(
+        contentType: 'bamboo_comment',
+        postId: widget.postId,
+        commentId: comment.commentId,
+        reason: reason,
+      ),
     );
-    if (mounted) Navigator.of(context).pop(true);
+    if (reported && mounted) {
+      _didMutate = true;
+      await _refreshDetail();
+    }
   }
 
   Future<void> _submitComment() async {
@@ -282,7 +301,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     try {
       await _repository.addComment(
         postId: widget.postId,
-        authorId: _currentUserId!,
         content: text,
         parentCommentId: _replyTargetCommentId,
       );
@@ -490,10 +508,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               children: [
                                 _DetailPostCard(
                                   post: _post!,
-                                  isOwner: isCommunityPostOwner(
-                                    currentUserId: _currentUserId,
-                                    authorId: _post!.authorId,
-                                  ),
+                                  isOwner: _isMyPost,
                                   onDelete: _deletePost,
                                   onReport: _reportPost,
                                   categoryColor: _getCategoryColor(
@@ -551,10 +566,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           onReplyTap: () => _startReply(root),
           onLikeTap: () => _toggleCommentLike(root.commentId),
           onReportTap: () => _reportComment(root),
-          isOwner: isCommunityPostOwner(
-            currentUserId: _currentUserId,
-            authorId: root.authorId,
-          ),
+          isOwner: _myCommentIds.contains(root.commentId),
           isLiked: _likedComments[root.commentId] ?? false,
           indent: 0,
         ),
@@ -570,10 +582,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             onReplyTap: () => _startReply(root),
             onLikeTap: () => _toggleCommentLike(child.commentId),
             onReportTap: () => _reportComment(child),
-            isOwner: isCommunityPostOwner(
-              currentUserId: _currentUserId,
-              authorId: child.authorId,
-            ),
+            isOwner: _myCommentIds.contains(child.commentId),
             isLiked: _likedComments[child.commentId] ?? false,
             indent: 20,
             isReply: true,

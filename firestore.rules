@@ -214,6 +214,23 @@ service cloud.firestore {
         nonNegativeIntField('likeCount');
     }
 
+    // P0-3: the production comment likeCount was only ±1-gated, so anyone could
+    // repeat +1. Bind it to the caller's own comment-like document, as the
+    // review partition already did.
+    function bambooCommentLikeCountBound(postId, commentId) {
+      return !bambooFieldChanged('likeCount') ||
+        (
+          bambooFieldDelta('likeCount') == 1 &&
+          !exists(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid)) &&
+          existsAfter(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid))
+        ) ||
+        (
+          bambooFieldDelta('likeCount') == -1 &&
+          exists(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid)) &&
+          !existsAfter(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid))
+        );
+    }
+
     // Review Bamboo Forest is deliberately a different collection root. A
     // production query over legacy bamboo_posts cannot be proven to exclude a
     // dataPartition field it does not filter on, so using a partition column
@@ -1311,6 +1328,17 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       }
 
       // ---------------------------------------------------------------------
+      // Bamboo content this user reported (P0-3)
+      // users/{kakaoUserId}/bambooHiddenContent/{postId | postId__commentId}
+      // ---------------------------------------------------------------------
+      // reportBambooContent writes it so the reporter no longer sees that
+      // post/comment. It holds content ids only — never the author.
+      match /bambooHiddenContent/{key} {
+        allow get, list: if isSelf(kakaoUserId);
+        allow create, update, delete: if false;
+      }
+
+      // ---------------------------------------------------------------------
       // Friends mirror
       // users/{kakaoUserId}/friends/{friendUid}
       // ---------------------------------------------------------------------
@@ -1960,97 +1988,70 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // -----------------------------------------------------------------------
-    // Bamboo Forest (Community)
+    // Bamboo Forest (Community) — P0-3 anonymous boundary
     // -----------------------------------------------------------------------
-    // 이전: create 에 request.auth 조건이 없어서 authorId 를 위조해 남의
-    // 이름으로 글을 쓸 수 있었고, update 2번째 분기가 카운터를 보호하지 않아
-    // likeCount / commentCount / score7d 를 임의 값으로 바꿀 수 있었다
-    // (인기 순위 조작).
+    // public 글/댓글은 로그인 사용자 누구나 읽는다. 규칙은 read 응답의 필드를
+    // 가릴 수 없으므로 이 문서들에는 작성자를 가리키는 값이 아예 없다 (서버
+    // writer 가 쓰지 않고, 클라이언트는 아래 counter 필드 외에는 바꿀 수 없다).
+    // 소유자는 비공개 매핑(bamboo_post_authors / bamboo_comment_authors) 에만
+    // 있고, 생성·삭제·신고처럼 소유자를 알아야 하는 쓰기는 전부 서버 callable
+    // (createCommunityPost/Comment, deleteCommunityPost/Comment,
+    // reportBambooContent) 이 매핑으로 판정한다.
+    //
+    // 클라이언트가 직접 쓸 수 있는 것은 자기 좋아요 문서와, 그것과 같은 커밋에서
+    // 움직이는 likeCount(±1)·score7d 뿐이다. commentCount·isDeleted·본문은
+    // 클라이언트가 바꿀 수 없다 (이전에는 누구나 commentCount 와 score7d 를 ±1 씩
+    // 반복해 인기 순위를 조작할 수 있었고, 운영 컬렉션의 댓글 likeCount 는 좋아요
+    // 문서와 묶여 있지 않았다).
+    //
+    // 좋아요 문서 id 는 누른 사람의 uid 다. 그래서 본인만 get 할 수 있고 list 는
+    // 막는다. 남의 uid 를 알고 있어도 그 사람이 좋아요를 눌렀는지 시험할 수
+    // 없다 — 거부 응답은 문서 존재 여부와 무관하다.
     match /bamboo_posts/{postId} {
       allow get, list: if isSignedIn() && !isPlayReviewSession();
-
-      // New public posts are written exclusively by createCommunityPost so
-      // server-side moderation cannot be bypassed.
-      allow create: if false;
+      allow create, delete: if false;
 
       allow update: if
-        (
-          resource.data.authorId == request.auth.uid &&
-          resource.data.authorId == request.resource.data.authorId &&
-          request.resource.data.isDeleted == true
-        )
-        ||
-        (
-          isSignedIn() && !isPlayReviewSession() &&
-          request.resource.data.authorId == resource.data.authorId &&
-          request.resource.data.content == resource.data.content &&
-          request.resource.data.category == resource.data.category &&
-          request.resource.data.tags == resource.data.tags &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'likeCount', 'commentCount', 'score7d', 'updatedAt'
-          ]) &&
-          bambooPostCounterUpdateOk() &&
-          bambooLikeCountBound(postId) &&
-          bambooScore7dMovesWithCounters()
-        );
+        isSignedIn() && !isPlayReviewSession() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'likeCount', 'score7d', 'updatedAt'
+        ]) &&
+        bambooPostCounterUpdateOk() &&
+        bambooLikeCountBound(postId) &&
+        bambooScore7dMovesWithCounters();
 
-      allow delete: if false;
-
-      // ---------------------------------------------------------------------
-      // Post likes
-      // ---------------------------------------------------------------------
-      // 이전: 익명 read, create 에 auth 조건 없음, delete 가 `if true` 여서
-      // 남의 좋아요를 취소할 수 있었다.
       match /likes/{userId} {
-        allow get, list: if isSignedIn() && !isPlayReviewSession();
+        allow get: if isSelf(userId) && !isPlayReviewSession();
+        allow list: if false;
 
         allow create: if
           isSelf(userId) && !isPlayReviewSession() &&
-          request.resource.data.userId is string &&
+          request.resource.data.keys().hasOnly(['userId', 'createdAt']) &&
           request.resource.data.userId == request.auth.uid;
 
         allow delete: if isSelf(userId) && !isPlayReviewSession();
         allow update: if false;
       }
 
-      // ---------------------------------------------------------------------
-      // Comments / Replies
-      // ---------------------------------------------------------------------
       match /comments/{commentId} {
         allow get, list: if isSignedIn() && !isPlayReviewSession();
-
-        // New comments are written exclusively by createCommunityComment.
-        allow create: if false;
+        allow create, delete: if false;
 
         allow update: if
-          (
-            resource.data.authorId == request.auth.uid &&
-            resource.data.authorId == request.resource.data.authorId &&
-            request.resource.data.isDeleted == true
-          )
-          ||
-          (
-            isSignedIn() && !isPlayReviewSession() &&
-            request.resource.data.authorId == resource.data.authorId &&
-            request.resource.data.content == resource.data.content &&
-            request.resource.data.parentCommentId == resource.data.parentCommentId &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'likeCount', 'updatedAt'
-            ]) &&
-            bambooCommentCounterUpdateOk()
-          );
+          isSignedIn() && !isPlayReviewSession() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'likeCount', 'updatedAt'
+          ]) &&
+          bambooCommentCounterUpdateOk() &&
+          bambooCommentLikeCountBound(postId, commentId);
 
-        allow delete: if false;
-
-        // -------------------------------------------------------------------
-        // Comment likes
-        // -------------------------------------------------------------------
         match /likes/{userId} {
-          allow get, list: if isSignedIn() && !isPlayReviewSession();
+          allow get: if isSelf(userId) && !isPlayReviewSession();
+          allow list: if false;
 
           allow create: if
             isSelf(userId) && !isPlayReviewSession() &&
-            request.resource.data.userId is string &&
+            request.resource.data.keys().hasOnly(['userId', 'createdAt']) &&
             request.resource.data.userId == request.auth.uid;
 
           allow delete: if isSelf(userId) && !isPlayReviewSession();
@@ -2060,59 +2061,25 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // -----------------------------------------------------------------------
-    // Bamboo private ownership mapping (SEC-04, Phase A)
+    // Bamboo private ownership mapping — the only ownership authority
     // -----------------------------------------------------------------------
-    // public bamboo_posts / comments 는 로그인 사용자면 누구나 읽을 수 있고,
-    // publicProfiles/{uid} 도 get 이 열려 있다. 그래서 public 문서에 raw UID 가
-    // 남아 있는 한 authorId -> 프로필 join 으로 익명 글 작성자를 특정할 수 있다.
-    // 규칙은 read 응답의 필드를 가릴 수 없으므로 최종적으로는 public 문서에서
-    // authorId 를 제거해야 하고, 그때 소유권을 잃지 않도록 여기에 비공개
-    // 매핑을 둔다. Phase A 에서는 public authorId 를 아직 지우지 않는다.
-    //
-    // 매핑 생성이 ownerUid == auth.uid 만 본다면 남의 글에 자기 소유권을 붙일 수
-    // 있다. 그래서 해당 public 문서의 authorId 도 요청자와 같은지 함께 본다.
-    // getAfter 를 쓰면 새 글과 매핑을 한 배치로 쓰는 경우와 기존 글에 매핑만
-    // 채우는 경우가 모두 같은 조건으로 검사된다.
-
-    // 경로 리터럴을 한 줄에 담기 어려워 헬퍼로 뺀다.
-    function bambooCommentPath(postId, commentId) {
-      return /databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId);
-    }
-
+    // 자기 매핑만 읽는다 ("내가 쓴 글", 내 댓글 표시). where(ownerUid == 본인)
+    // 이 없는 쿼리와 남의 매핑 get 은 거부된다 — 매핑이 없을 때도 같은 거부다.
+    // 매핑은 글/댓글과 같은 커밋에서 서버만 만든다. 클라이언트 create 경로가
+    // 남아 있으면 남의 글에 자기 소유권을 붙이는 시도가 가능해지므로 막는다.
+    // 정리는 계정삭제 서버 경로(Admin SDK)가 한다.
     match /bamboo_post_authors/{postId} {
-      // 자기 매핑만 읽는다. 타인이 읽을 수 있으면 익명성이 무의미해진다.
-      allow get: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
-      // "내가 쓴 글" 은 where(ownerUid == 본인) 쿼리로만 가능하다. 조건 없는
-      // 전체 목록이나 타인 UID 조건은 이 규칙에서 걸린다.
-      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
-
-      allow create: if
-        isSignedIn() &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.postId == postId &&
-        getAfter(/databases/$(database)/documents/bamboo_posts/$(postId))
-          .data.authorId == request.auth.uid;
-
-      // 소유권은 옮겨지지 않는다. 정리는 계정삭제 서버 경로(Admin SDK)가 한다.
-      allow update, delete: if false;
+      allow get, list: if
+        isSignedIn() && !isPlayReviewSession() &&
+        resource.data.ownerUid == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     match /bamboo_comment_authors/{mappingId} {
-      allow get: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
-
-      allow create: if
-        isSignedIn() &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.postId is string &&
-        request.resource.data.commentId is string &&
-        mappingId ==
-          request.resource.data.postId + '__' + request.resource.data.commentId &&
-        getAfter(bambooCommentPath(request.resource.data.postId,
-                                   request.resource.data.commentId))
-          .data.authorId == request.auth.uid;
-
-      allow update, delete: if false;
+      allow get, list: if
+        isSignedIn() && !isPlayReviewSession() &&
+        resource.data.ownerUid == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     // -----------------------------------------------------------------------
@@ -2121,44 +2088,26 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     // Review community content has its own root collection. This is a strict
     // data-plane boundary: Play Review sessions are denied from bamboo_posts
     // above, while ordinary app sessions are denied from every path below.
-    // Server-seeded fixture documents can use reviewFixture; client-created
-    // review content uses the narrower schemas enforced here.
+    // The same anonymity contract applies: no author field, owner only in the
+    // review mappings, likes readable only by the liker.
     match /playReviewBambooPosts/{postId} {
       allow get, list: if isPlayReviewSession();
-
-      allow create: if false;
+      allow create, delete: if false;
 
       allow update: if
         isPlayReviewSession() &&
         resource.data.dataPartition == 'play_review' &&
         request.resource.data.dataPartition == 'play_review' &&
-        (
-          (
-            resource.data.authorId == request.auth.uid &&
-            request.resource.data.isDeleted == true &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'isDeleted', 'updatedAt'
-            ])
-          ) ||
-          (
-            request.resource.data.authorId == resource.data.authorId &&
-            request.resource.data.content == resource.data.content &&
-            request.resource.data.category == resource.data.category &&
-            request.resource.data.tags == resource.data.tags &&
-            request.resource.data.isDeleted == resource.data.isDeleted &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'likeCount', 'commentCount', 'score7d', 'updatedAt'
-            ]) &&
-            bambooPostCounterUpdateOk() &&
-            reviewBambooLikeCountBound(postId) &&
-            bambooScore7dMovesWithCounters()
-          )
-        );
-
-      allow delete: if false;
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'likeCount', 'score7d', 'updatedAt'
+        ]) &&
+        bambooPostCounterUpdateOk() &&
+        reviewBambooLikeCountBound(postId) &&
+        bambooScore7dMovesWithCounters();
 
       match /likes/{userId} {
-        allow get, list: if isPlayReviewSession();
+        allow get: if isPlayReviewSession() && isSelf(userId);
+        allow list: if false;
         allow create: if
           isPlayReviewSession() && isSelf(userId) &&
           request.resource.data.keys().hasOnly([
@@ -2173,38 +2122,21 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
 
       match /comments/{commentId} {
         allow get, list: if isPlayReviewSession();
-        allow create: if false;
+        allow create, delete: if false;
 
         allow update: if
           isPlayReviewSession() &&
           resource.data.dataPartition == 'play_review' &&
           request.resource.data.dataPartition == 'play_review' &&
-          (
-            (
-              resource.data.authorId == request.auth.uid &&
-              request.resource.data.isDeleted == true &&
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                'isDeleted', 'updatedAt'
-              ])
-            ) ||
-            (
-              request.resource.data.authorId == resource.data.authorId &&
-              request.resource.data.content == resource.data.content &&
-              request.resource.data.parentCommentId ==
-                resource.data.parentCommentId &&
-              request.resource.data.isDeleted == resource.data.isDeleted &&
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                'likeCount', 'updatedAt'
-              ]) &&
-              bambooCommentCounterUpdateOk() &&
-              reviewBambooCommentLikeCountBound(postId, commentId)
-            )
-          );
-
-        allow delete: if false;
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'likeCount', 'updatedAt'
+          ]) &&
+          bambooCommentCounterUpdateOk() &&
+          reviewBambooCommentLikeCountBound(postId, commentId);
 
         match /likes/{userId} {
-          allow get, list: if isPlayReviewSession();
+          allow get: if isPlayReviewSession() && isSelf(userId);
+          allow list: if false;
           allow create: if
             isPlayReviewSession() && isSelf(userId) &&
             request.resource.data.keys().hasOnly([
@@ -2222,38 +2154,13 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     match /playReviewBambooPostAuthors/{postId} {
       allow get, list: if
         isPlayReviewSession() && resource.data.ownerUid == request.auth.uid;
-      allow create: if
-        isPlayReviewSession() &&
-        request.resource.data.keys().hasOnly([
-          'postId', 'ownerUid', 'createdAt', 'dataPartition'
-        ]) &&
-        request.resource.data.postId == postId &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.createdAt is timestamp &&
-        request.resource.data.dataPartition == 'play_review' &&
-        getAfter(reviewBambooPostPath(postId)).data.authorId == request.auth.uid;
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /playReviewBambooCommentAuthors/{mappingId} {
       allow get, list: if
         isPlayReviewSession() && resource.data.ownerUid == request.auth.uid;
-      allow create: if
-        isPlayReviewSession() &&
-        request.resource.data.keys().hasOnly([
-          'postId', 'commentId', 'ownerUid', 'createdAt', 'dataPartition'
-        ]) &&
-        request.resource.data.postId is string &&
-        request.resource.data.commentId is string &&
-        mappingId ==
-          request.resource.data.postId + '__' + request.resource.data.commentId &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.createdAt is timestamp &&
-        request.resource.data.dataPartition == 'play_review' &&
-        getAfter(reviewBambooCommentPath(request.resource.data.postId,
-                                         request.resource.data.commentId))
-          .data.authorId == request.auth.uid;
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
 

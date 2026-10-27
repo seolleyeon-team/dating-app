@@ -1,16 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
-bool isCommunityPostOwner({
-  required String? currentUserId,
-  required String authorId,
-}) {
-  final normalizedCurrentUserId = currentUserId?.trim() ?? '';
-  final normalizedAuthorId = authorId.trim();
-  return normalizedCurrentUserId.isNotEmpty &&
-      normalizedCurrentUserId == normalizedAuthorId;
-}
-
 /// Shows the post action sheet and a second destructive-action confirmation.
 ///
 /// Returns true only when the user explicitly confirms deletion.

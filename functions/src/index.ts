@@ -148,10 +148,11 @@ import {
 } from "./studentEmailBinding";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 import {
+  BAMBOO_ANONYMOUS_ACTOR_NAME,
   BAMBOO_COMMENT_OWNER_COLLECTION,
   BAMBOO_POST_OWNER_COLLECTION,
   bambooCommentOwnerDocId,
-  ownerUidForNotification,
+  ownerUidOrEmpty,
   resolveBambooOwner,
 } from "./bambooOwnership";
 import { createUploadOnboardingPhotoFunction } from "./onboardingPhotoUpload";
@@ -2670,6 +2671,9 @@ const communitySafety = createCommunitySafetyCallables(
 );
 export const createCommunityPost = communitySafety.createCommunityPost;
 export const createCommunityComment = communitySafety.createCommunityComment;
+export const deleteCommunityPost = communitySafety.deleteCommunityPost;
+export const deleteCommunityComment = communitySafety.deleteCommunityComment;
+export const reportBambooContent = communitySafety.reportBambooContent;
 export const sendChatText = createSendChatTextFunction(
   db,
   (request) => resolveReviewCapableAppUser(request.auth),
@@ -4632,50 +4636,45 @@ export const onChatMessageCreated = onDocumentCreated(
 // =============================================================================
 // 4) 대나무숲 댓글/답글 푸시 + 인앱 알림
 // =============================================================================
-// SEC-04. 소유자는 비공개 매핑을 먼저 보고, 아직 이관되지 않은 문서에 한해
-// public authorId 를 임시로 인정한다. 둘이 어긋나면 알림을 보내지 않는다 —
-// 잘못 고르면 남의 글 알림이 엉뚱한 사람에게 간다. 여기서 users /
-// publicProfiles 를 뒤져 추측하지 않는다. 그게 없애려는 join 그 자체다.
-async function resolveBambooPostOwnerUid(
-  postId: string,
-  legacyAuthorId: unknown
-): Promise<string> {
+// P0-3. 소유자는 비공개 매핑으로만 정한다. 매핑이 없거나 깨졌으면 아무에게도
+// 보내지 않는다 (fail closed) — public authorId fallback 은 없다. 알림 문서와
+// 푸시 payload 에는 행위자(댓글 작성자·좋아요 누른 사람)의 UID 나 닉네임을
+// 넣지 않는다. 받는 사람이 읽을 수 있는 문서라서, 넣는 순간 익명 작성자가
+// 특정된다. 로그에도 행위자 UID 를 남기지 않는다.
+async function resolveBambooPostOwnerUid(postId: string): Promise<string> {
   const mapSnap = await db
     .collection(BAMBOO_POST_OWNER_COLLECTION)
     .doc(postId)
     .get();
   const resolution = resolveBambooOwner(
-    mapSnap.data()?.ownerUid,
-    legacyAuthorId
+    mapSnap.exists ? mapSnap.data() : null,
+    { postId }
   );
-  if (resolution.status === "conflict") {
-    logger.error("Bamboo post ownership conflict; skipping notification", {
-      postId,
-    });
+  if (resolution.status === "malformed") {
+    logger.error("Bamboo post ownership mapping malformed; skipping notification", { postId });
   }
-  return ownerUidForNotification(resolution);
+  return ownerUidOrEmpty(resolution);
 }
 
 async function resolveBambooCommentOwnerUid(
   postId: string,
-  commentId: string,
-  legacyAuthorId: unknown
+  commentId: string
 ): Promise<string> {
   const mapSnap = await db
     .collection(BAMBOO_COMMENT_OWNER_COLLECTION)
     .doc(bambooCommentOwnerDocId(postId, commentId))
     .get();
   const resolution = resolveBambooOwner(
-    mapSnap.data()?.ownerUid,
-    legacyAuthorId
+    mapSnap.exists ? mapSnap.data() : null,
+    { postId, commentId }
   );
-  if (resolution.status === "conflict") {
-    logger.error("Bamboo comment ownership conflict; skipping notification", {
+  if (resolution.status === "malformed") {
+    logger.error("Bamboo comment ownership mapping malformed; skipping notification", {
       postId,
       commentId,
     });
   }
-  return ownerUidForNotification(resolution);
+  return ownerUidOrEmpty(resolution);
 }
 
 export const onBambooCommentCreated = onDocumentCreated(
@@ -4688,35 +4687,28 @@ export const onBambooCommentCreated = onDocumentCreated(
     const commentId = event.params.commentId;
     const comment = snap.data();
 
-    const authorId = await resolveBambooCommentOwnerUid(
-      postId,
-      commentId,
-      comment.authorId
-    );
+    // 댓글 작성자는 자기 알림 억제에만 쓴다. 모르면 보내지 않는다.
+    const commenterUid = await resolveBambooCommentOwnerUid(postId, commentId);
     const content = asString(comment.content ?? "").trim();
     const parentCommentId = asNonEmptyString(comment.parentCommentId) ?? "";
 
-    if (!authorId) return;
-
-    const authorInfo = await getUserDisplayInfo(authorId);
+    if (!commenterUid) return;
 
     const postSnap = await db.collection("bamboo_posts").doc(postId).get();
     if (!postSnap.exists) return;
 
-    const post = (postSnap.data() ?? {}) as Record<string, unknown>;
-    const postAuthorId = await resolveBambooPostOwnerUid(postId, post.authorId);
-
     // 일반 댓글: 글 작성자에게 푸시 + 인앱 알림
     if (!parentCommentId) {
-      if (postAuthorId && postAuthorId !== authorId) {
+      const postOwnerUid = await resolveBambooPostOwnerUid(postId);
+      if (postOwnerUid && postOwnerUid !== commenterUid) {
         const notificationId = buildNotificationIdempotencyKey([
           "community_comment",
           postId,
           commentId,
-          postAuthorId,
+          postOwnerUid,
         ]);
         await sendPushOnce(
-          [postAuthorId],
+          [postOwnerUid],
           {
             title: "내 글에 새 댓글이 달렸어요",
             body: content || "댓글이 도착했어요.",
@@ -4731,15 +4723,14 @@ export const onBambooCommentCreated = onDocumentCreated(
         );
 
         await createInAppNotification(
-          postAuthorId,
+          postOwnerUid,
           {
             type: "community_comment",
             title: "내 글에 새 댓글이 달렸어요",
-            body: content || "누군가가 회원님의 글에 댓글을 남겼습니다.",
+            body: content || "익명의 누군가가 회원님의 글에 댓글을 남겼습니다.",
             deeplinkType: "community_post",
             deeplinkId: postId,
-            actorId: authorId,
-            actorName: authorInfo.nickname,
+            actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
             postId,
             commentId,
           },
@@ -4749,8 +4740,6 @@ export const onBambooCommentCreated = onDocumentCreated(
         logger.info("Community comment push + in-app notification sent", {
           postId,
           commentId,
-          target: postAuthorId,
-          authorId,
         });
       }
       return;
@@ -4766,61 +4755,50 @@ export const onBambooCommentCreated = onDocumentCreated(
 
     if (!parentSnap.exists) return;
 
-    const parent = (parentSnap.data() ?? {}) as Record<string, unknown>;
-    const parentAuthorId = await resolveBambooCommentOwnerUid(
+    const parentOwnerUid = await resolveBambooCommentOwnerUid(postId, parentCommentId);
+    if (!parentOwnerUid || parentOwnerUid === commenterUid) return;
+
+    const notificationId = buildNotificationIdempotencyKey([
+      "community_reply",
       postId,
-      parentCommentId,
-      parent.authorId
-    );
-
-    const targets = [parentAuthorId].filter((uid) => uid && uid !== authorId);
-
-    if (targets.length > 0) {
-      const notificationId = buildNotificationIdempotencyKey([
-        "community_reply",
-        postId,
-        commentId,
-        parentAuthorId,
-      ]);
-      await sendPushOnce(
-        targets,
-        {
-          title: "내 댓글에 답글이 달렸어요",
-          body: content || "답글이 도착했어요.",
-          data: {
-            type: "community_reply",
-            postId,
-            commentId,
-            notificationId,
-          },
-        },
-        `push_${notificationId}`
-      );
-
-      await createInAppNotification(
-        parentAuthorId,
-        {
+      commentId,
+      parentOwnerUid,
+    ]);
+    await sendPushOnce(
+      [parentOwnerUid],
+      {
+        title: "내 댓글에 답글이 달렸어요",
+        body: content || "답글이 도착했어요.",
+        data: {
           type: "community_reply",
-          title: "내 댓글에 답글이 달렸어요",
-          body: content || "누군가가 회원님의 댓글에 답글을 남겼습니다.",
-          deeplinkType: "community_post",
-          deeplinkId: postId,
-          actorId: authorId,
-          actorName: authorInfo.nickname,
           postId,
           commentId,
+          notificationId,
         },
-        notificationId
-      );
+      },
+      `push_${notificationId}`
+    );
 
-      logger.info("Community reply push + in-app notification sent", {
+    await createInAppNotification(
+      parentOwnerUid,
+      {
+        type: "community_reply",
+        title: "내 댓글에 답글이 달렸어요",
+        body: content || "익명의 누군가가 회원님의 댓글에 답글을 남겼습니다.",
+        deeplinkType: "community_post",
+        deeplinkId: postId,
+        actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
         postId,
         commentId,
-        parentCommentId,
-        targets,
-        authorId,
-      });
-    }
+      },
+      notificationId
+    );
+
+    logger.info("Community reply push + in-app notification sent", {
+      postId,
+      commentId,
+      parentCommentId,
+    });
   }
 );
 
@@ -4834,6 +4812,8 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     if (!snap) return;
 
     const postId = event.params.postId;
+    // 경로의 userId 는 좋아요를 누른 본인이다 (rules: isSelf). 자기 알림 억제에만
+    // 쓰고 어디에도 기록하지 않는다.
     const likerUserId = event.params.userId;
 
     if (!postId || !likerUserId) return;
@@ -4841,31 +4821,26 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     const postSnap = await db.collection("bamboo_posts").doc(postId).get();
     if (!postSnap.exists) return;
 
-    const post = (postSnap.data() ?? {}) as Record<string, unknown>;
-    const postAuthorId = await resolveBambooPostOwnerUid(postId, post.authorId);
+    const postOwnerUid = await resolveBambooPostOwnerUid(postId);
 
-    if (!postAuthorId || postAuthorId === likerUserId) {
+    if (!postOwnerUid || postOwnerUid === likerUserId) {
       return;
     }
 
     const existingCount = await countPostLikeNotificationsForPost(
-      postAuthorId,
+      postOwnerUid,
       postId
     );
 
     if (existingCount >= 5) {
       logger.info("Skipped post like notification due to 5-notification limit", {
         postId,
-        postAuthorId,
-        likerUserId,
         existingCount,
       });
       return;
     }
 
-    const likerInfo = await getUserDisplayInfo(likerUserId);
-
-    await sendPushToUsers([postAuthorId], {
+    await sendPushToUsers([postOwnerUid], {
       title: "내 글에 좋아요가 눌렸어요",
       body: "누군가가 회원님의 글을 좋아합니다.",
       data: {
@@ -4874,21 +4849,18 @@ export const onBambooPostLikeCreated = onDocumentCreated(
       },
     });
 
-    await createInAppNotification(postAuthorId, {
+    await createInAppNotification(postOwnerUid, {
       type: "community_post_like",
       title: "내 글에 좋아요가 눌렸어요",
       body: "누군가가 회원님의 글을 좋아합니다.",
       deeplinkType: "community_post",
       deeplinkId: postId,
-      actorId: likerUserId,
-      actorName: likerInfo.nickname,
+      actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
       postId,
     });
 
     logger.info("Community post like push + in-app notification sent", {
       postId,
-      postAuthorId,
-      likerUserId,
       existingCount: existingCount + 1,
     });
   }

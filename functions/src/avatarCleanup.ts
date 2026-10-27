@@ -1251,6 +1251,10 @@ export function createAvatarCleanupFirestoreExecutor(
         case "deleteRecEventsParent":
         case "softDeleteBambooPost":
         case "softDeleteBambooComment":
+        // P0-3: the plan deletes the private Bamboo ownership mappings after
+        // the content steps; without this case the executor dropped them and
+        // a deleted account's uid stayed in bamboo_post_authors/comment_authors.
+        case "deleteBambooOwnershipMapping":
         case "scrubFriendInvite":
         case "removeEventTeamMember":
         case "cancelEventTeamInvite":
