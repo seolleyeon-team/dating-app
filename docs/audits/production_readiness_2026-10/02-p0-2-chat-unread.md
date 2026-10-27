@@ -715,7 +715,7 @@ contained `chatSafety.ts` although git dates the file after the deploy.
 | `onInteractionCreated` | `00007-kug` 08-10 | handler: operations-account and partition guard (blocks `invalid` / mismatched / forged partitions before any notification or match), `dataPartition` on match/room/message, like-notification limited to the production partition; `shared/notify.ts`: per-device push suppression already live in `onChatMessageCreated` | security fix (completes the Play-review isolation already live in sibling functions) | new emulator tests on the real handler: production pair → notification + match + room + `readBy`-free system message, redelivery idempotent; ops account → nothing; cross/invalid partition → nothing | **DEPLOYED → `oninteractioncreated-00008-xaq`** |
 | `autoCompleteExpiredGoodbyeSafetyStamps` | `00006-vuj` 08-10 | handler: client-written promise `participantIds` narrowed to the room's participants before follow-up notifications; `readBy` removed | security fix | new emulator test: outsider in `participantIds` gets no follow-up, completion message has no `readBy`, <2 room participants → untouched; first scheduled run on the new revision 200 (08:58Z, processed 0) | **DEPLOYED → `autocompleteexpiredgoodbyesafetystamps-00007-cow`** |
 | `blindMeetingOps` | `00001-qiv` 08-10 | `ops.ts`: deposit/refund override handler and deposit listing removed (NO_DEPOSIT, product-wide since 09-03); the blind-meeting modules it imports are the FSM the three sibling functions have run since 09-09; 0 invocations in 90 days | intentional feature change already live elsewhere; admin-only; the stale version acted on a deposit model that no longer exists | blind FSM emulator 87/87 | **DEPLOYED → `blindmeetingops-00002-nex`** |
-| `blindMeetingMatchingTick` | `00003-gah` 09-09 | `scheduled.ts` `runBlindMeetingMatchingStep`: now calls `processBlindMeetingReplacementSearches()` first and defers matching while any `replacementSearchActive` meeting exists. That processor is **not invoked anywhere in production today**; it cancels meetings, archives their chat rooms, writes cancelled participant status and heart-refund `heartTransactions`. No test covers it (0 meetings currently have an active search) | unrelated feature activation (user-affecting, financial side effect) | none | **GATED — owner decision** |
+| `blindMeetingMatchingTick` | `00003-gah` 09-09 | `scheduled.ts` `runBlindMeetingMatchingStep`: now calls `processBlindMeetingReplacementSearches()` first and defers matching while any `replacementSearchActive` meeting exists. That processor is **not invoked anywhere in production today**; it cancels meetings, archives their chat rooms, writes cancelled participant status and heart-refund `heartTransactions`. No test covers it (0 meetings currently have an active search) | unrelated feature activation (user-affecting, financial side effect) | none | **GATED — owner decision** — *corrected 2026-10-27, see § Fourth pass: this row compared the wrong archive; the real drift is `readBy` only and the flow was already live* |
 
 Guard results for the 7 deploys: dotenv contract PASS, pre/post ENV
 REGRESSION GUARD PASS (0 removals / 0 changes / 0 missing / 0 undeclared; 5,
@@ -746,3 +746,60 @@ guards 47/47 with 0 runtime `readBy` code lines.
 - PRE-LAUNCH TECHNICAL: not declared closed while one writer deploy and the
   transitional rule remain.
 - CLIENT RELEASE VERIFICATION: DEFERRED BY OWNER.
+
+## Fourth pass (2026-10-27) — `blindMeetingMatchingTick`, owner-approved
+
+**Correction.** The third pass gated this function on the claim that its
+redeploy would newly activate `processBlindMeetingReplacementSearches`, a
+flow "not invoked anywhere in production". Both parts were wrong. That pass
+reused `blindMeetingAction`'s archive (09-09 02:36Z) for this function and
+searched only for the call form `processBlindMeetingReplacementSearches(`.
+The matching tick's own archive (09-09 02:51Z, generation
+`1788922212052822`) already contains the replacement step and the matching
+deferral, and `blindMeetingLifecycleTick` has passed the processor by
+reference to `runStep("automaticReplacement", …)` since 09-09 (confirmed in
+its old archive, generation `1788921377259756`). Diffing the right archive
+along the tick's whole code path (36 files under `blindMeeting/`,
+`meetingIcebreaker/`, `shared/`) leaves exactly the 2 `readBy` lines. The
+flow was live, not newly activated; production has 2 blind meetings, none
+with an active search, and 0 replacement-cancel refunds so far.
+
+**Regression tests (were missing).**
+`functions/src/blindMeeting/automaticReplacement.emulator-test.ts`, real
+entry points (`leaveBlindMeeting`, `processBlindMeetingReplacementSearches`,
+`fillBlindMeetingVacancies`, `blindMeetingMatchingTick.run`), 4/4:
+
+| Test | Contract |
+|---|---|
+| A | leave → search opens with a deadline, leaver leaves the room, `readBy`-free leave message; a wrong-gender and a wrong-date candidate are skipped; a same-gender candidate fills the seat: roster, team, room members = roster, newcomer confirmed (`isReplacement`), application closed, vote round +1, `readBy`-free invite message; skipped candidates stay queued |
+| B | both ticks + a direct fill concurrently → the seat is filled exactly once, by the earliest applicant; one invite message; the later candidate stays queued |
+| C | deadline passed, both ticks concurrently and once more → meeting cancelled, room archived (no members, read-only), each remaining member +30 hearts with exactly one `meeting_cancel_refund` record, participants/applications cancelled; the leaver gets nothing |
+| D | while a search is open the matching tick creates no new 3:3 even with a full waiting pool; after the search ends the next tick cancels it and matches the pool once |
+
+Mutation check: removing the deferral `return` makes D fail. Removing the
+`!refund.exists` guard does not make C fail, because the deterministic
+`heartTransactions` doc id written with `tx.create` and the
+already-cancelled early return each independently prevent a second refund.
+The new test runs in the CI emulator job.
+
+**Deploy.** From `1d2c50af` (= integrated `629f7c67` + the test file and CI
+step; no runtime difference) with `scripts/deploy_functions_guarded.sh` and
+the 27 OPS-02 additions declared one by one: dotenv contract PASS, ENV
+REGRESSION GUARD PASS before and after (0 removals / 0 changes / 0 missing /
+0 undeclared), `blindmeetingmatchingtick-00003-gah` →
+`blindmeetingmatchingtick-00004-xih`, Ready 100 %, nodejs22, 60 s / 256 Mi,
+SA unchanged, 37 env keys, 0 secret refs, scheduler `every 10 minutes`
+ENABLED, 98 functions, `onChatMessageCreated` untouched (`00009-mod`,
+`RETRY_POLICY_RETRY`).
+
+**Verification.** Strict smoke v3 33/33, group smoke 21/21, residue 0;
+`--verify` rooms 23 / structural 0 / mismatches 0 / unverifiable 0.
+
+### Status after the fourth pass
+
+- SOURCE CLOSED · CLIENT SOURCE READY · DATA VERIFIED.
+- BACKEND WRITERS CLOSED: 15 of 15 writers redeployed; no deployed server
+  writer stores `readBy`.
+- LEGACY RULES RETIREMENT DEFERRED (NEW-18, transitional own-uid tolerance,
+  release-dependent).
+- CLIENT RELEASE VERIFICATION DEFERRED (owner).
