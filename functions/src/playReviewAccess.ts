@@ -308,14 +308,21 @@ function isReviewOnlyUid(value: unknown): value is string {
     (PLAY_REVIEW_ALL_UIDS as readonly string[]).includes(value);
 }
 
+/**
+ * Review Bamboo documents live under review-only roots. Public posts/comments
+ * carry no author field (P0-3); a legacy one that still does must name a
+ * review uid. Likes and private ownership mappings must name a review uid.
+ */
 function assertReviewBambooDocument(
   data: Record<string, unknown>,
   path: string,
-  idField: "authorId" | "ownerUid" | "userId",
+  idField: "ownerUid" | "userId" | null,
 ): void {
+  const legacyAuthor = data.authorId;
   if (
     data.dataPartition !== PLAY_REVIEW_PARTITION ||
-    !isReviewOnlyUid(data[idField])
+    (idField != null && !isReviewOnlyUid(data[idField])) ||
+    (legacyAuthor != null && !isReviewOnlyUid(legacyAuthor))
   ) {
     logger.error("Refusing unsafe review Bamboo reset", { path, idField });
     throw new HttpsError("internal", "Review data isolation check failed.");
@@ -345,7 +352,7 @@ async function resetReviewBambooArtifacts(firestore: Firestore): Promise<void> {
     assertReviewBambooDocument(
       post.data() as Record<string, unknown>,
       post.ref.path,
-      "authorId",
+      null,
     );
     const [comments, likes] = await Promise.all([
       post.ref.collection("comments").get(),
@@ -363,7 +370,7 @@ async function resetReviewBambooArtifacts(firestore: Firestore): Promise<void> {
       assertReviewBambooDocument(
         comment.data() as Record<string, unknown>,
         comment.ref.path,
-        "authorId",
+        null,
       );
       const commentLikes = await comment.ref.collection("likes").get();
       for (const like of commentLikes.docs) {
@@ -671,7 +678,7 @@ async function seedReviewScenario(firestore: Firestore): Promise<void> {
   const reviewBambooPosts = [
     {
       postId: "review_bamboo_welcome",
-      authorId: "play-fixture-b-01",
+      ownerUid: "play-fixture-b-01",
       category: "일상",
       content: "안녕하세요! 이 글과 댓글은 Google Play 심사용으로 준비된 합성 대나무숲 데이터입니다.",
       tags: ["심사", "안내"],
@@ -681,7 +688,7 @@ async function seedReviewScenario(firestore: Firestore): Promise<void> {
     },
     {
       postId: "review_bamboo_campus",
-      authorId: "play-fixture-a-02",
+      ownerUid: "play-fixture-a-02",
       category: "고민",
       content: "점심 메뉴 추천 받아요. 리뷰 계정에서도 글 작성, 좋아요, 댓글 기능을 확인할 수 있습니다.",
       tags: ["고민"],
@@ -691,7 +698,7 @@ async function seedReviewScenario(firestore: Firestore): Promise<void> {
     },
     {
       postId: "review_bamboo_tip",
-      authorId: "play-fixture-b-03",
+      ownerUid: "play-fixture-b-03",
       category: "질문",
       content: "대나무숲의 전체·인기·카테고리 탭과 상세 화면을 검토할 수 있도록 만든 합성 게시글입니다.",
       tags: ["기능확인"],
@@ -700,7 +707,9 @@ async function seedReviewScenario(firestore: Firestore): Promise<void> {
       score7d: 0,
     },
   ];
-  for (const post of reviewBambooPosts) {
+  for (const { ownerUid, ...post } of reviewBambooPosts) {
+    // P0-3: the public document has no author field; the owner lives only in
+    // the private mapping below.
     batch.set(firestore.collection(REVIEW_BAMBOO_POSTS_COLLECTION)
       .doc(post.postId), {
       ...post,
@@ -713,7 +722,7 @@ async function seedReviewScenario(firestore: Firestore): Promise<void> {
     batch.set(firestore.collection(REVIEW_BAMBOO_POST_AUTHORS_COLLECTION)
       .doc(post.postId), {
       postId: post.postId,
-      ownerUid: post.authorId,
+      ownerUid,
       dataPartition: PLAY_REVIEW_PARTITION,
       reviewFixture: true,
       createdAt: now,
@@ -723,7 +732,6 @@ async function seedReviewScenario(firestore: Firestore): Promise<void> {
     .doc("review_bamboo_welcome").collection("comments")
     .doc("review_bamboo_welcome_comment"), {
     commentId: "review_bamboo_welcome_comment",
-    authorId: "play-fixture-b-02",
     content: "상세 화면에서 댓글과 좋아요도 확인해 주세요.",
     parentCommentId: null,
     likeCount: 0,
