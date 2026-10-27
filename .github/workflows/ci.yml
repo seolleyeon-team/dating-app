@@ -106,6 +106,14 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
           --project demo-p02-chat
           "node --test functions/.ci-emulator-lib/deploymentDriftRegression.emulator-test.js"
+      # Blind-meeting replacement search (both scheduled ticks run it): fill
+      # by same-gender FIFO candidate, concurrent ticks fill once, deadline
+      # cancellation refunds remaining members once, matching deferral.
+      - name: Blind meeting replacement search (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-blind-replacement
+          "node --test functions/.ci-emulator-lib/blindMeeting/automaticReplacement.emulator-test.js"
 
   storage-rules:
     name: Storage rules tests
