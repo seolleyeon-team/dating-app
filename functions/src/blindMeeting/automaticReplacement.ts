@@ -160,10 +160,29 @@ export async function leaveBlindMeeting(params: { meetingId: string; userId: str
   await fillBlindMeetingVacancies(params.meetingId);
 }
 
+/**
+ * A search on a meeting that was cancelled through another path, or that has
+ * already started or finished, can neither fill nor cancel anything: it is
+ * stale and only needs closing. leaveBlindMeeting accepts any confirmed member,
+ * so a seat can open on the day while the lifecycle tick moves the meeting on.
+ */
+const SEARCH_CLOSED_MEETING_STATUSES: ReadonlySet<string> = new Set([
+  "cancelled",
+  "in_progress",
+  "completed",
+  "followup_open",
+  "read_only",
+  "archived",
+]);
+
+function replacementSearchIsStale(serverStatus: unknown): boolean {
+  return SEARCH_CLOSED_MEETING_STATUSES.has(String(serverStatus ?? ""));
+}
+
 /** Finds FIFO eligible replacement units and commits every selected member atomically. */
 export async function fillBlindMeetingVacancies(meetingId: string): Promise<number> {
   const [meeting, policy, applications] = await Promise.all([loadMeeting(meetingId), loadPolicy(), loadAllOpenApplications()]);
-  if (!meeting.raw.replacementSearchActive || meeting.status === "cancelled") return 0;
+  if (!meeting.raw.replacementSearchActive || replacementSearchIsStale(meeting.status)) return 0;
   const participantSnap = await db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId).collection(BLIND_MEETING_COLLECTIONS.participants).get();
   const vacancies: Vacancy[] = participantSnap.docs
     .filter((doc) => doc.data()?.replacementSearchActive === true && doc.data()?.serverStatus === "cancelled")
@@ -212,7 +231,7 @@ export async function fillBlindMeetingVacancies(meetingId: string): Promise<numb
       return false;
     }
     const data = freshMeeting.data() ?? {};
-    if (data.replacementSearchActive !== true) return false;
+    if (data.replacementSearchActive !== true || replacementSearchIsStale(data.serverStatus)) return false;
     const nextIds = asStrArray(data.participantIds).map((uid) => selections.get(uid)?.userId ?? uid);
     const nextA = asStrArray(data.teamAUserIds).map((uid) => selections.get(uid)?.userId ?? uid);
     const nextB = asStrArray(data.teamBUserIds).map((uid) => selections.get(uid)?.userId ?? uid);
@@ -277,7 +296,8 @@ export async function processBlindMeetingReplacementSearches(): Promise<void> {
     // A meeting cancelled through another path (cancelMeeting: schedule
     // window expired, five-person vote rejected, ops rematch) keeps the flag;
     // left open it would defer ordinary matching in the matching tick forever.
-    if (doc.data()?.serverStatus === "cancelled") {
+    // A meeting that already started or finished keeps it too.
+    if (replacementSearchIsStale(doc.data()?.serverStatus)) {
       await closeStaleReplacementSearch(doc.id);
       continue;
     }
@@ -294,7 +314,7 @@ async function closeStaleReplacementSearch(meetingId: string): Promise<void> {
   const meetingRef = db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId);
   await db().runTransaction(async (tx) => {
     const snap = await tx.get(meetingRef);
-    if (!snap.exists || snap.data()?.serverStatus !== "cancelled" || snap.data()?.replacementSearchActive !== true) return;
+    if (!snap.exists || !replacementSearchIsStale(snap.data()?.serverStatus) || snap.data()?.replacementSearchActive !== true) return;
     tx.set(meetingRef, { replacementSearchActive: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   });
 }
@@ -311,7 +331,7 @@ export async function cancelReplacementFailedMeeting(meetingId: string): Promise
     if (!meetingSnap.exists) return [] as string[];
     const meetingData = meetingSnap.data() ?? {};
     if (meetingData.replacementSearchActive !== true) return [] as string[];
-    if (meetingData.serverStatus === "cancelled") {
+    if (replacementSearchIsStale(meetingData.serverStatus)) {
       tx.set(meetingRef, { replacementSearchActive: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return [] as string[];
     }

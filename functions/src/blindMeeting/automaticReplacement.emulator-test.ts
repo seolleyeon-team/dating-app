@@ -14,6 +14,8 @@
  *  D. 탐색 중인 미팅이 있으면 matching tick 은 새 3:3 을 만들지 않고, 탐색이
  *     끝나면 다시 만든다 (먼저 신청한 후보가 새 방으로 빠지지 않게).
  *  E. 성별·날짜가 맞지 않는 후보로는 채우지 않는다.
+ *  E–G. (NEW-19) 다른 경로로 취소된 미팅의 탐색 정리, fill/기한 취소 race, 환불 대상 tx 내 확정.
+ *  H. (NEW-19) 이미 시작·종료된 미팅의 탐색은 채우지도 취소하지도 않고 닫는다.
  *
  * 실행 (repo root, JDK 21):
  *   npx tsc -p functions --outDir functions/.p02-lib
@@ -373,4 +375,42 @@ test("G: the deadline cancel refunds exactly the members confirmed at commit tim
     assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${uid}: left, not refunded`);
   }
   assert.equal((await meetingData(meetingId)).serverStatus, "cancelled");
+});
+
+test("H: a search still open when the meeting has already started or finished neither fills nor cancels it — it is closed", async () => {
+  // leaveBlindMeeting only requires a confirmed participant, so a member can
+  // leave on the day (checkin_open / in_progress) and the lifecycle tick keeps
+  // moving the meeting forward while the search is open.
+  const cases: Array<{ status: string; deadlinePassed: boolean; day: number }> = [
+    { status: "in_progress", deadlinePassed: false, day: 9 },
+    { status: "completed", deadlinePassed: true, day: 10 },
+  ];
+  for (const c of cases) {
+    await isolate();
+    const dateKey = dateKeyInWindow(c.day);
+    const { meetingId, males, females } = await matchMeeting(dateKey);
+    const leaver = males[0];
+    await leaveBlindMeeting({ meetingId, userId: leaver });
+    const newcomer = `${tagOf()}_m_new`;
+    await seedApplicant({ userId: newcomer, gender: "male" }, [dateKey]);
+    await db.collection("blindMeetings").doc(meetingId).set({
+      serverStatus: c.status,
+      status: c.status,
+      replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() + (c.deadlinePassed ? -1_000 : 3_600_000)),
+    }, { merge: true });
+
+    await processBlindMeetingReplacementSearches();
+
+    const meeting = await meetingData(meetingId);
+    assert.equal(meeting.serverStatus, c.status, `${c.status}: the meeting is not cancelled`);
+    assert.equal(meeting.replacementSearchActive, false, `${c.status}: the search is closed`);
+    assert.ok(!(meeting.participantIds as string[]).includes(newcomer), `${c.status}: nobody joins a meeting that already started`);
+    const app = (await db.collection("blindMeetingApplications").doc(newcomer).get()).data() ?? {};
+    assert.equal(app.open, true, `${c.status}: the newcomer stays in the pool`);
+    const room = (await (await roomOf(meetingId)).get()).data() ?? {};
+    assert.notEqual(room.status, "archived", `${c.status}: the room is not archived by the search`);
+    for (const uid of [...males, ...females].filter((u) => u !== leaver)) {
+      assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${c.status}/${uid}: no refund`);
+    }
+  }
 });
