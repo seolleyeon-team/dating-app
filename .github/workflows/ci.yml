@@ -114,6 +114,22 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
           --project demo-blind-replacement
           "node --test functions/.ci-emulator-lib/blindMeeting/automaticReplacement.emulator-test.js"
+      # P0-3: Bamboo Forest anonymity on the real handlers — authorless public
+      # writers, anonymous notifications (no actor uid/nickname), mapping-only
+      # fail-closed ownership, delete/report callables, no authorship oracle.
+      - name: P0-3 Bamboo anonymity (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p03-bamboo
+          "node --test functions/.ci-emulator-lib/bambooPrivacy.emulator-test.js"
+      # P0-3: the historical-data redaction migration — dry-run writes
+      # nothing, verified records only, conflicts/unverifiable stop, mapping
+      # creation for auth-only legacy accounts, idempotency, canary limit.
+      - name: P0-3 Bamboo privacy migration (Firestore + Auth emulators)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,auth
+          --project demo-p03-migration
+          "node --test scripts/bamboo_privacy_migration.test.mjs scripts/bamboo_privacy_migration.emulator-test.mjs"
 
   storage-rules:
     name: Storage rules tests
