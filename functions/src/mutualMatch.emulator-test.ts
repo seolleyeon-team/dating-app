@@ -35,7 +35,8 @@ type Runner = { run: (event: unknown) => Promise<unknown> };
 
 async function seedUser(uid: string, extra: Record<string, unknown> = {}) {
   await db.collection("users").doc(uid).set({
-    kakaoUserId: uid, nickname: `nick_${uid.slice(-4)}`, isActive: true, status: "active", ...extra,
+    kakaoUserId: uid, nickname: `nick_${uid.slice(-4)}`, isActive: true, status: "active",
+    adultVerified: true, realNameVerified: true, ...extra,
   });
 }
 
@@ -250,6 +251,19 @@ test("I: rec and interaction triggers racing for the same mutual pair commit exa
   const roomId = buildDirectRoomId(a, b);
   const systemMessages = await systemMessagesOf(roomId);
   assert.ok(systemMessages.length <= 1, "at most one welcome message");
+});
+
+test("K (P1-7): an account without server-side adult verification is never notified or matched, whichever side it is", async () => {
+  const a = fresh("na"), b = fresh("nb"), c = fresh("nc");
+  await seedUser(a); await seedUser(b, { adultVerified: false, realNameVerified: false }); await seedUser(c, { adultVerified: true, realNameVerified: false });
+  await like(a, b); await like(b, a);
+  assert.equal((await likeNotificationsOf(b)).length, 0);
+  assert.equal((await likeNotificationsOf(a)).length, 0);
+  assert.equal((await matchesBetween(a, b)).length, 0);
+  // realNameVerified missing: the pair of flags is the evidence, not one of them.
+  await like(a, c); await like(c, a);
+  assert.equal((await matchesBetween(a, c)).length, 0);
+  assert.equal((await likeNotificationsOf(c)).length, 0);
 });
 
 test("J: an operations account or a cross-partition pair is never matched or notified", async () => {

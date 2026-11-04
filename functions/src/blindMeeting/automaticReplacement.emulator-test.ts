@@ -63,7 +63,7 @@ const tagOf = () => `rp${++runSeq}_${Date.now().toString(36)}`;
 
 async function seedApplicant(seed: Seed, dateKeys: string[], appliedAt = new Date()): Promise<void> {
   await db.collection("users").doc(seed.userId).set({
-    isStudentVerified: true,
+    isStudentVerified: true, adultVerified: true, realNameVerified: true,
     isWithdrawn: false,
     loginDisabled: false,
     nickname: seed.userId,

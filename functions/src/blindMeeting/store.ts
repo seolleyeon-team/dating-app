@@ -16,6 +16,7 @@ import {
 } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import { assertEligibleForDatingFeatures } from "../adultEligibility";
 
 import {
   hasRequiredLifestyle,
@@ -120,6 +121,9 @@ export async function requireVerifiedUser(request: {
   if (data.isWithdrawn === true || data.loginDisabled === true) {
     throw new HttpsError("permission-denied", "현재 계정으로는 참가할 수 없어요.");
   }
+  // P1-7: the blind meeting is a dating feature — server-side adult
+  // verification is required, not only the client's route guard.
+  assertEligibleForDatingFeatures(data);
   return { userId: uid, data };
 }
 

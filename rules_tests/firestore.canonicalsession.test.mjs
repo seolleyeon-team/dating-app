@@ -29,15 +29,21 @@ const MY_EMAIL = "me@yonsei.ac.kr";
 
 function seedSocialGraph() {
   return withClearedDb(async (db) => {
+    // P1-7: dating writes also need the server-written adult evidence; this
+    // suite is about session claims, so both accounts carry it.
     await setDoc(doc(db, "users", ME), {
       kakaoUserId: ME,
       isStudentVerified: true,
+      adultVerified: true,
+      realNameVerified: true,
       studentEmail: MY_EMAIL,
       nickname: "나",
     });
     await setDoc(doc(db, "users", OTHER), {
       kakaoUserId: OTHER,
       isStudentVerified: true,
+      adultVerified: true,
+      realNameVerified: true,
       studentEmail: "other@yonsei.ac.kr",
       nickname: "상대",
     });

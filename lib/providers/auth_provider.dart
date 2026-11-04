@@ -943,13 +943,6 @@ class AuthProvider with ChangeNotifier {
 
     try {
       final appUserId = _appUserId;
-      // P1-3: drop this device's push registration while the account is
-      // still authenticated (the rules only let the owner delete it), then
-      // rotate the FCM token. The next account on this device must not
-      // receive this account's notifications.
-      await PushNotificationService.instance.unregisterCurrentDevice(
-        userId: appUserId,
-      );
       // Firebase sign-out + Kakao SDK logout: the next user on this device
       // must not inherit a stale Kakao friend-connection session.
       await _authService.signOutAll();

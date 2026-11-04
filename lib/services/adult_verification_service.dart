@@ -42,10 +42,17 @@ class AdultVerificationService {
 
   /// Production builds must verify through PortOne before Kakao login.
   /// This flag exists only for an explicitly opted-in local debug build.
-  static const bool isTemporarilyDisabled = bool.fromEnvironment(
+  ///
+  /// P1-7: the compile-time flag is honoured in debug/profile builds only. A
+  /// release build that is compiled with `--dart-define=ADULT_VERIFICATION_
+  /// BYPASS=true` still requires verification: the server never marks such an
+  /// account adultVerified, and every dating entry point (rules, sendChatText,
+  /// unlockDirectChat, matching, asks, blind meeting) re-checks that flag.
+  static const bool _bypassRequested = bool.fromEnvironment(
     'ADULT_VERIFICATION_BYPASS',
     defaultValue: false,
   );
+  static const bool isTemporarilyDisabled = !kReleaseMode && _bypassRequested;
 
   final StorageService _storageService;
   final FirebaseFunctions _functions;

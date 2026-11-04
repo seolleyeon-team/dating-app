@@ -37,7 +37,9 @@ type Runner = { run: (event: unknown) => Promise<unknown> };
 
 async function seedUser(uid: string, extra: Record<string, unknown> = {}) {
   await db.collection("users").doc(uid).set({
-    kakaoUserId: uid, nickname: `nick_${uid.slice(-4)}`, isActive: true, status: "active", ...extra,
+    kakaoUserId: uid, nickname: `nick_${uid.slice(-4)}`, isActive: true, status: "active",
+    // P1-7: dating features require server-side adult verification.
+    adultVerified: true, realNameVerified: true, ...extra,
   });
 }
 

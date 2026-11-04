@@ -22,6 +22,7 @@ import { createHash } from "node:crypto";
 import { FieldValue, type Firestore, type Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 
+import { ADULT_VERIFICATION_REQUIRED_MESSAGE, isEligibleForDatingFeatures } from "./adultEligibility";
 import { assertSafeMemberText } from "./contentSafety";
 import { dataPartitionOf } from "./playReviewAccess";
 
@@ -103,6 +104,10 @@ export function evaluateSendAuthorization(params: {
   const roomPartition = dataPartitionOf(room);
   if (userPartition === "invalid" || roomPartition === "invalid" || userPartition !== roomPartition) {
     return { code: "permission-denied", message: "채팅방에 입장할 수 없어요." };
+  }
+  // P1-7: adult verification is server evidence, not a route guard.
+  if (!isEligibleForDatingFeatures(params.user.data ?? {})) {
+    return { code: "failed-precondition", message: ADULT_VERIFICATION_REQUIRED_MESSAGE };
   }
   if (!isRoomSendable(room)) {
     return { code: "failed-precondition", message: "종료된 채팅방에는 메시지를 보낼 수 없어요." };

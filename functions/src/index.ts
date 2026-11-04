@@ -210,6 +210,7 @@ import {
   respondTeamInviteCore,
 } from "./eventTeamMembership";
 import { ensureMutualMatch, isBlockedEitherWay } from "./mutualMatchCreation";
+import { assertEligibleForDatingFeatures, isEligibleForDatingFeatures } from "./adultEligibility";
 import { createDeviceTokenOwnershipTrigger } from "./pushTokenOwnership";
 
 // Firebase Admin 초기화
@@ -2358,6 +2359,12 @@ export const unlockDirectChat = onCall(withAppCheck(), async (request) => {
   }
   const partnerData = (partnerSnap.data() ?? {}) as Record<string, unknown>;
   const dataPartition = assertSameDataPartition(user.data, partnerData);
+  // P1-7: both sides must hold server-side adult verification (review
+  // partition exempt) before a 1:1 chat can be opened.
+  assertEligibleForDatingFeatures(user.data);
+  if (!isEligibleForDatingFeatures(partnerData)) {
+    throw new HttpsError("permission-denied", "현재 이 상대와 채팅을 시작할 수 없어요.");
+  }
   const reviewFixtureDirectChat = canPlayReviewUserOpenDirectChatWithFixture(
     user.data,
     partnerData,
@@ -4401,6 +4408,17 @@ export const onInteractionCreated = onDocumentCreated(
     ) {
       return;
     }
+    // P1-7: likes, notifications and matches require server-side adult
+    // verification on both sides (the review partition is exempt).
+    if (
+      !isEligibleForDatingFeatures(fromUserData) ||
+      !isEligibleForDatingFeatures(toUserData)
+    ) {
+      logger.info("Interaction ignored: adult verification missing", {
+        interactionId: event.params.interactionId,
+      });
+      return;
+    }
 
     // -----------------------------------------------------------------------
     // P1-1: a block in either direction ends the interaction here — no
@@ -4876,6 +4894,27 @@ export const onAskCreated = onDocumentCreated(
     const toUserId = asString(data.toUserId ?? "");
 
     if (!fromUserId || !toUserId || fromUserId === toUserId) return;
+
+    // P1-7 / P1-10: both parties must be eligible (adult-verified production
+    // accounts or review-partition accounts) and unblocked before the
+    // recipient is notified about the question.
+    const [fromSnap, toSnap] = await Promise.all([
+      db.collection("users").doc(fromUserId).get(),
+      db.collection("users").doc(toUserId).get(),
+    ]);
+    const fromData = (fromSnap.data() ?? {}) as Record<string, unknown>;
+    const toData = (toSnap.data() ?? {}) as Record<string, unknown>;
+    if (
+      !fromSnap.exists ||
+      !toSnap.exists ||
+      dataPartitionOf(fromData) !== dataPartitionOf(toData) ||
+      !isEligibleForDatingFeatures(fromData) ||
+      !isEligibleForDatingFeatures(toData) ||
+      (await isBlockedEitherWay(db, fromUserId, toUserId))
+    ) {
+      logger.info("Ask notification skipped: ineligible or blocked pair", { askId });
+      return;
+    }
 
     const notificationId = `ask_${askId}`;
     const actorInfo = await getUserDisplayInfo(fromUserId);
@@ -5474,8 +5513,24 @@ export const sendDailyUnreadChatDigests = onSchedule(
           ? `${target.previewSenderName}님 외 읽지 않은 메시지가 ${target.unreadCount}개 있습니다.`
           : `읽지 않은 메시지가 ${target.unreadCount}개 있습니다.`;
 
-        // The in-app record is the idempotency anchor: create it first with a
-        // deterministic id; a retried run finds it and skips the push too.
+        // P1-8: two independent idempotency anchors, push first. Before, the
+        // in-app record was created first and a push failure after it was
+        // never retried (the next run saw the record and skipped). Now the
+        // push is deduplicated by notificationDispatchLog and the in-app
+        // record by its deterministic id, so a retried run completes whichever
+        // step failed and neither can be delivered twice.
+        const pushed = await sendPushOnce(
+          [userId],
+          {
+            title,
+            body,
+            data: {
+              type: "chat_digest",
+              notificationId,
+            },
+          },
+          buildNotificationIdempotencyKey(["chat_digest", digestDate, userId])
+        );
         const created = await createInAppNotification(
           userId,
           {
@@ -5487,23 +5542,17 @@ export const sendDailyUnreadChatDigests = onSchedule(
           },
           notificationId
         );
-        if (!created) {
+        if (!pushed && !created) {
           logger.info("Skipped chat digest: already sent today", { userId, digestDate });
           continue;
         }
-
-        await sendPushToUsers([userId], {
-          title,
-          body,
-          data: {
-            type: "chat_digest",
-          },
-        });
 
         logger.info("Daily unread chat digest sent", {
           userId,
           unreadCount: target.unreadCount,
           digestDate,
+          pushed,
+          inAppCreated: created,
         });
       } catch (error) {
         logger.error("Failed to send daily unread chat digest", {

@@ -68,6 +68,11 @@ void main() {
     expect(router, contains('case RouteNames.adultVerification'));
     expect(verification, contains("'ADULT_VERIFICATION_BYPASS'"));
     expect(verification, isNot(contains('isTemporarilyDisabled = true')));
+    // P1-7: the bypass can never be active in a release build.
+    expect(
+      verification,
+      contains('isTemporarilyDisabled = !kReleaseMode && _bypassRequested'),
+    );
   });
 
   test('splash never restores a session from Kakao or local ids', () {

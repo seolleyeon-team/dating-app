@@ -64,7 +64,7 @@ async function seedSpinWorld(): Promise<void> {
   for (const uid of [...A_UIDS, ...B_UIDS]) {
     await db.collection("users").doc(uid).set({
       name: uid,
-      isStudentVerified: true,
+      isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
       onboarding: { campusLifeZones: ["sinchon"] },
     });
@@ -175,7 +175,7 @@ test("E2E: spin recovers from a stale lock whose result doc is missing", async (
   for (const uid of [...aUids, ...bUids]) {
     await db.collection("users").doc(uid).set({
       name: uid,
-      isStudentVerified: true,
+      isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
       onboarding: { campusLifeZones: ["sinchon"] },
     });
@@ -253,7 +253,7 @@ test("E2E: a cross-zone team is never offered as a roulette candidate", async ()
     for (const uid of uids) {
       await db.collection("users").doc(uid).set({
         name: uid,
-        isStudentVerified: true,
+        isStudentVerified: true, adultVerified: true, realNameVerified: true,
         studentEmail: `${uid}@yonsei.ac.kr`,
         onboarding: { campusLifeZones: zones },
       });
@@ -336,7 +336,7 @@ test("E2E: a team without campus life zones cannot spin (fail-closed)", async ()
     // 생활권 없이 학년/학과만 있는 사용자 — 추천기가 재계산하지 않는다.
     await db.collection("users").doc(uid).set({
       name: uid,
-      isStudentVerified: true,
+      isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
       onboarding: { grade: "1학년", department: "첨단융합공학부" },
     });
@@ -344,7 +344,7 @@ test("E2E: a team without campus life zones cannot spin (fail-closed)", async ()
   for (const uid of peerUids) {
     await db.collection("users").doc(uid).set({
       name: uid,
-      isStudentVerified: true,
+      isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
       onboarding: { campusLifeZones: ["songdo"] },
     });

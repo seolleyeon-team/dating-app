@@ -9,7 +9,7 @@ import {
   peerOf,
 } from "./chatSafety";
 
-const alice = { userId: "alice", data: {} };
+const alice = { userId: "alice", data: { adultVerified: true, realNameVerified: true } };
 
 function room(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return { type: "one_to_one", participantIds: ["alice", "bob"], status: "active", ...extra };
@@ -41,6 +41,16 @@ test("P1-2: authorisation denials in order — missing room, non-participant, pa
     evaluateSendAuthorization({ room: room(), roomExists: true, user: { userId: "alice", data: { dataPartition: "play_review" } }, blocked: false })?.code,
     "permission-denied",
     "a review account cannot write into a production room"
+  );
+  assert.equal(
+    evaluateSendAuthorization({ room: room(), roomExists: true, user: { userId: "alice", data: { isStudentVerified: true } }, blocked: false })?.code,
+    "failed-precondition",
+    "P1-7: an account without server-side adult verification cannot send"
+  );
+  assert.equal(
+    evaluateSendAuthorization({ room: room({ dataPartition: "play_review" }), roomExists: true, user: { userId: "alice", data: { dataPartition: "play_review" } }, blocked: false }),
+    null,
+    "the review partition is exempt from the adult gate"
   );
   assert.equal(
     evaluateSendAuthorization({ room: room({ status: "closed" }), roomExists: true, user: alice, blocked: false })?.code,

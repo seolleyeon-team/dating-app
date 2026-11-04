@@ -72,7 +72,7 @@ type Seed = { userId: string; gender: "male" | "female" };
 
 async function seedApplicant(seed: Seed, dateKey: string): Promise<void> {
   await db.collection("users").doc(seed.userId).set({
-    isStudentVerified: true,
+    isStudentVerified: true, adultVerified: true, realNameVerified: true,
     isWithdrawn: false,
     loginDisabled: false,
     nickname: seed.userId,
@@ -633,7 +633,7 @@ test("submit persists DNA + dates; cancel keeps them; re-apply reads them back",
   const uid = `dna_${Date.now()}`;
   const dateKeys = [dateKeyInWindow(2), dateKeyInWindow(9)];
   await db.collection("users").doc(uid).set({
-    isStudentVerified: true,
+    isStudentVerified: true, adultVerified: true, realNameVerified: true,
     heartBalance: 200,
     nickname: uid,
     onboarding: {

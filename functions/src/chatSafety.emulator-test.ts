@@ -51,7 +51,8 @@ async function expectDenied(promise: Promise<unknown>, code: string) {
   });
 }
 
-const send = (uid: string, roomId: string, text: string, clientMessageId: string | null = null, data: Record<string, unknown> = {}) =>
+const ADULT = { adultVerified: true, realNameVerified: true };
+const send = (uid: string, roomId: string, text: string, clientMessageId: string | null = null, data: Record<string, unknown> = ADULT) =>
   sendChatTextCore(db, { userId: uid, data }, { roomId, text, clientMessageId });
 
 test("writable active room: a participant sends; the room metadata is updated in the same transaction", async () => {
@@ -127,6 +128,17 @@ test("partition boundary: a production account cannot write into a review room a
   assert.equal((await messagesOf(reviewRoom)).length, 1);
 });
 
+test("P1-7: an account without server-side adult verification cannot send; a review-partition account can", async () => {
+  const a = fresh("a"), b = fresh("b"), room = fresh("dm"), review = fresh("dm");
+  await seedRoom(room, [a, b]);
+  await seedRoom(review, [a, b], { dataPartition: "play_review" });
+  await expectDenied(send(a, room, "hello", null, { isStudentVerified: true }), "failed-precondition");
+  await expectDenied(send(a, room, "hello", null, { adultVerified: true }), "failed-precondition");
+  assert.equal((await messagesOf(room)).length, 0);
+  await send(a, review, "hello", null, { dataPartition: "play_review" });
+  assert.equal((await messagesOf(review)).length, 1);
+});
+
 test("idempotent send: the same clientMessageId creates one message; distinct ids with identical text create two", async () => {
   const a = fresh("a"), b = fresh("b"), room = fresh("dm");
   await seedRoom(room, [a, b]);
@@ -159,7 +171,7 @@ test("callable handler: validates text, clientMessageId and roomId and enforces 
   await seedRoom(room, [a, b]);
   const fn = createSendChatTextFunction(db, async (request) => {
     const uid = (request as { auth?: { uid?: string } }).auth?.uid ?? "";
-    return { userId: uid, data: {} };
+    return { userId: uid, data: ADULT };
   }) as unknown as Runner;
   const call = (uid: string, data: Record<string, unknown>) => fn.run({ data, auth: { uid, token: {} }, rawRequest: {} });
 

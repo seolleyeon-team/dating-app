@@ -131,6 +131,22 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // P1-7: dating writes (likes, asks, chat) require the server-written
+    // adult-verification evidence on the caller's own users document.
+    // adultVerified / realNameVerified are written only by
+    // verifyAdultIdentityAfterLogin and are in no client-writable allowlist.
+    // The review partition is an isolated data plane and is exempt.
+    function isAdultVerifiedCaller() {
+      return isSignedIn() && (
+        isPlayReviewSession() ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('adultVerified', false) == true &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('realNameVerified', false) == true
+        )
+      );
+    }
+
     // Community counters are client-written via FieldValue.increment(±1).
     // Without a ±1 gate anyone can set likeCount/score7d to an arbitrary rank.
     function intFieldUnchangedOrDeltaOne(field) {
@@ -1729,6 +1745,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         !hasOneToOneChatBlock(resource.data) &&
         // P1-2: only chat metadata and the promise mirror are client-mutable.
         chatRoomClientMutableOnly() &&
+        isAdultVerifiedCaller() &&
         isChatRoomParticipantAfter() &&
         chatRoomParticipantIdsUnchanged() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
@@ -1756,6 +1773,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           // text is server-only and a client may create only the two promise
           // card shapes with their exact fields.
           chatRoomAcceptsClientWrites(blindRoomData(roomId)) &&
+          isAdultVerifiedCaller() &&
           request.resource.data.type != 'text' &&
           isClientCreatableChatMessage(roomId) &&
           // P0-2: the accounting marker is written only by the server. The
@@ -1789,6 +1807,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow create: if isExistingChatRoomParticipant(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
           chatRoomAcceptsClientWrites(blindRoomData(roomId)) &&
+          isAdultVerifiedCaller() &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
             blindRoomData(roomId).writable == true) &&
           request.resource.data.keys().hasOnly(promiseClientCreatableKeys()) &&
@@ -1799,6 +1818,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           isPromiseAuthorAtCreate(roomId) &&
           request.resource.data.status == 'requested';
         allow update: if isExistingChatRoomParticipant(roomId) &&
+          isAdultVerifiedCaller() &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
             blindRoomData(roomId).writable == true) &&
           request.resource.data.diff(resource.data).affectedKeys()
@@ -2500,6 +2520,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
 
       allow create: if
         (isCanonicalAppSession() || isPlayReviewSession()) &&
+        isAdultVerifiedCaller() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
@@ -2532,6 +2553,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow read: if isInteractionParticipant(resource.data);
       allow create: if
         (isCanonicalAppSession() || isPlayReviewSession()) &&
+        isAdultVerifiedCaller() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&

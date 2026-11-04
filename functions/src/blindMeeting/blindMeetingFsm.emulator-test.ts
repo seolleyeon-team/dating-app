@@ -118,7 +118,7 @@ async function seedGenderedUsers(uids: string[]): Promise<void> {
       .doc(uid)
       .set(
         {
-          isStudentVerified: true,
+          isStudentVerified: true, adultVerified: true, realNameVerified: true,
           nickname: uid,
           onboarding: { gender: index < 3 ? "male" : "female" },
         },
@@ -363,7 +363,7 @@ async function seedChargedOpenApplication(
   patch: Record<string, unknown> = {}
 ): Promise<void> {
   await db.collection("users").doc(uid).set(
-    { heartBalance: 100 - BLIND_MEETING_HEART_COST, isStudentVerified: true },
+    { heartBalance: 100 - BLIND_MEETING_HEART_COST, isStudentVerified: true, adultVerified: true, realNameVerified: true },
     { merge: true }
   );
   await db
@@ -1294,7 +1294,7 @@ test("cancel → DNA start twice charges once (stale dnaApplicationCompleted is 
   await db.collection("users").doc(uid).set(
     {
       heartBalance: 100 - BLIND_MEETING_HEART_COST,
-      isStudentVerified: true,
+      isStudentVerified: true, adultVerified: true, realNameVerified: true,
       onboarding: { lifestyle: { drinking: "sometimes", smoking: "nonSmoker" } },
     },
     { merge: true }
