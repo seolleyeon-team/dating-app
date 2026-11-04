@@ -8,6 +8,23 @@ provoke notifications on purpose. Firestore Rules cannot redact fields of a
 readable document, so the fix has to remove identity at the storage and
 authorization boundary, not in the UI.
 
+## 0. Owner decisions — OWNER APPROVED — 2026-10-28
+
+- **A. Historical author fields:** remove `authorId` and equivalent identity
+  fields from existing public Bamboo posts/comments (production and Play
+  Review). Content, timestamps, counters and legitimate ownership are kept;
+  the private mapping is the ownership authority.
+- **B. Bamboo real-name block filtering removed:** blocking a suspect and
+  watching which anonymous posts disappear is a deanonymization oracle.
+  Dating/matching/chat blocking is unchanged; Bamboo reporting stays, hides the
+  reported item from the reporter, keeps the author server-side for
+  moderation only, never returns it, and creates no mutual real-name block.
+- **C. Production order:** indexes → Rules → targeted Functions → historical
+  migration → production penetration tests → final PR merge (preflight, review,
+  CI and dry-run first).
+- **D. NEW-11** deferred to the final release gate.
+- **E. NEW-19** (PR #152) completed in the same rollout.
+
 ## 1. Confirmed identification paths (before this change)
 
 | # | Path | Data exposed | Reader | Class | Fix |
@@ -94,39 +111,91 @@ manipulation), and the production comment `likeCount` was only ±1-gated
 Dry-run plan: create 21 mappings, redact `authorId` from 25 posts + 1 comment,
 0 notification writes. `--verify` today: 47 violations (expected before apply).
 
-## 5. Rollout order (not executed — review gate)
+## 4a. Phase 0A — historical ownership trust gate
 
-1. Merge the PR after owner review.
-2. Deploy `firestore:indexes` (mapping `ownerUid + createdAt`).
-3. Deploy **Rules** first: they never read `authorId`, so they work on both
-   legacy and redacted documents; like toggles keep working on legacy docs
-   (tested). This closes likes enumeration and counter forgery immediately.
-4. Guarded Functions deploy (`scripts/deploy_functions_guarded.sh`, env
+A matching account (Firebase Auth or `users` doc) is **not** proof that the uid
+wrote a given post. Evidence used, per record without a mapping:
+
+- the Firestore ruleset live at the document's server `createTime` (Rules API
+  ruleset history; 31 Firestore rulesets since 2026-05-18) must bind
+  `authorId == request.auth.uid` on create with no OR branch;
+- the document was never updated (`updateTime == createTime`);
+- it was not written in the same commit as another author's document.
+
+Findings (production, read-only):
+
+| Class | Records | Handling |
+|---|---|---|
+| TRUSTED_EXISTING_MAPPING | 1 post (server writer, 2026-09-14) + 4 review records | keep mapping, redact |
+| TRUSTED_HISTORICAL_PROVENANCE | 1 post (client write 2026-08-01 under ruleset `bdda3c9d`, never updated) | create mapping, redact |
+| LEGACY_AUTHOR_ONLY | 20 posts — all share one server `createTime` 2026-05-19T17:23:30.177Z (one atomic commit with 4 different authors = admin bulk import; `createdAt` values March–April 2026 predate this project's first ruleset) | **no owner assigned**; public fields removed; legacy claim kept only in server-only `bamboo_ownership_unresolved`; owner operations (delete, "내 글") stay closed |
+| CONFLICT / MALFORMED / UNVERIFIABLE | 0 | — |
+
+## 4b. Phase 0B — privacy-safe cutover
+
+Rules cannot redact fields, and the owner's order deploys Rules before the
+migration. `firestore.p03-transition.rules` (generated from the final rules by
+`scripts/build_p03_transition_rules.mjs`, drift-checked in `rules_tests`) is
+deployed in step 2:
+
+- `get` on a Bamboo post/comment is allowed only when it carries **no**
+  identity field;
+- Bamboo **list is closed**. A `resource.data.keys()` gate cannot protect a
+  list: the Rules engine evaluates a query against its constraints, so the gate
+  passed vacuously and an unfiltered list returned `authorId` documents in the
+  emulator — caught by the transition suite before deployment.
+
+Consequence: the Bamboo feed is unavailable from the step-2 Rules deploy until
+the migration verifies 0 violations, when the final `firestore.rules` is
+deployed (step 4b). A short documented restriction instead of a privacy leak.
+
+## 5. Rollout order (owner decision C)
+
+Preflight before step 1: independent reviews of PR #152 and PR #153 (findings
+fixed, see §5a), all suites green on one pinned candidate commit (PR #153 head
+containing PR #152), production dry-run.
+
+1. **Indexes** — create only the two mapping indexes
+   (`bamboo_post_authors` / `playReviewBambooPostAuthors`: `ownerUid ASC,
+   createdAt DESC`); wait for READY.
+2. **Rules (transition)** — deploy `firestore.p03-transition.rules`
+   (`firebase deploy --only firestore:rules --config firebase.p03-transition.json`).
+   Closes like enumeration, counter forgery and legacy identity reads at once;
+   Bamboo lists closed until 4b.
+3. **Functions** — guarded deploy (`scripts/deploy_functions_guarded.sh`,
    additions declared one by one) of exactly the functions whose code path
-   changed:
-   - content writers: `createCommunityPost`, `createCommunityComment`;
-   - new callables: `deleteCommunityPost`, `deleteCommunityComment`,
-     `reportBambooContent`;
-   - notification triggers: `onBambooCommentCreated`, `onBambooPostLikeCreated`;
-   - `reportAndBlockUser` (refuses Bamboo content);
-   - account deletion: `cleanupAvatarMedia` (social soft delete + mapping
-     executor case); `purgeAccountDeletionRetention` only if its live archive
-     diff shows it runs the social plan (it imports the same executor);
-   - Play review: `preparePlayReviewSession` (authorless seed, reset check).
+   changed, after a live-archive diff of each:
+   - P0-3: `createCommunityPost`, `createCommunityComment`,
+     `deleteCommunityPost` (new), `deleteCommunityComment` (new),
+     `reportBambooContent` (new), `onBambooCommentCreated`,
+     `onBambooPostLikeCreated`, `reportAndBlockUser`, `cleanupAvatarMedia`,
+     `preparePlayReviewSession`; `purgeAccountDeletionRetention` only if its
+     archive diff shows a changed code path;
+   - NEW-19: `blindMeetingLifecycleTick`, `blindMeetingMatchingTick`.
    `shared/notify.ts` changes behaviour only for Bamboo types, so no other
-   notification producer needs a redeploy. Diff each live archive against the
-   merged tip first (deployment-drift lesson, `02-p0-2-chat-unread.md`). New
-   writers stop producing identity-bearing docs before step 5.
-5. Migration: `--dry-run` → `--apply --allow-production --limit 1` (canary) →
-   `--verify` → full `--apply --checkpoint` → `--verify` must report
-   `violations: 0`.
-6. Production penetration checks with namespaced test identities through the
-   client SDK against live Rules (likes list/get, mapping get/list/query,
-   public field set, partition crossing), residue cleanup.
+   notification producer needs a redeploy.
+4. **Migration** — dry-run → canary (`--apply --allow-production --only-post`
+   on one representative record) → full `--apply --checkpoint` → `--verify`
+   must report `violations: 0` (unresolved ownership reported separately).
+   **4b.** Deploy the final `firestore.rules` (reopens Bamboo lists; the data
+   no longer holds identity fields).
+5. **Production penetration tests** with namespaced test identities through the
+   client SDK against the live Rules and callables; residue cleanup to 0.
+6. **Merge** PR #152 then PR #153; verify the integration tree equals the
+   deployed candidate tree (runtime paths).
 
-Exposure window: between step 3 and the end of step 5 the 26 legacy docs still
-carry `authorId` (minutes). Fail-closed alternative if the owner prefers zero
-window: run step 5 immediately after step 4 in the same session.
+## 5a. Pre-deployment review findings (fixed before pinning)
+
+PR #153 (independent review): ownership lookup by document-id `in` was denied
+by Rules whenever a page mixed other people's posts (now by `postId`); like
+create→counter / delete-alone loop inflated likeCount (like create/delete now
+bound to the parent's ±1); `updatedAt`-only writes; account deletion left
+`bambooHiddenContent`; Play review reset kept the reviewer's hidden seeds;
+provider account switch during the ownership lookup; migration checkpoint
+advancing past unapplied/anomalous posts; verify counting deleted-account
+posts as violations. Plus the transition-rules list leak found by our own
+suite (§4b). PR #152 (independent review): see `02-p0-2-chat-unread.md` /
+backlog NEW-19 (checkin_open, stale-snapshot flag, status normalisation).
 
 ## 6. Installed-client compatibility (release-dependent)
 
