@@ -6,6 +6,7 @@ import * as logger from "firebase-functions/logger";
 
 import { loadCampusLifeZoneEnforced } from "../campusLifeZoneActivation";
 import { Candidate, checkGroupConstraints, groupCommonDateKeys } from "./matching";
+import { normalizeLegacyMeetingStatus } from "./legacyDepositStatus";
 import { notifyBlindMeeting } from "./notifications";
 import {
   ApplicationDoc,
@@ -185,10 +186,12 @@ const SERVER_STATUS_BY_APP_STATUS: ReadonlyMap<string, string> = new Map(
 
 /** serverStatus, or the app-format status mapped back (documents written by older code carry only one). */
 function meetingServerStatus(data: Record<string, unknown> | undefined): string {
-  const server = typeof data?.serverStatus === "string" ? data.serverStatus.trim() : "";
-  if (server) return server;
-  const app = typeof data?.status === "string" ? data.status.trim() : "";
-  return SERVER_STATUS_BY_APP_STATUS.get(app) ?? (app in MEETING_STATUS_TO_APP ? app : "");
+  const raw = (typeof data?.serverStatus === "string" ? data.serverStatus.trim() : "") ||
+    (typeof data?.status === "string" ? data.status.trim() : "");
+  // Same legacy normalisation as store.toServerStatus (old deposit states).
+  const value = normalizeLegacyMeetingStatus(raw);
+  if (value in MEETING_STATUS_TO_APP) return value;
+  return SERVER_STATUS_BY_APP_STATUS.get(value) ?? "";
 }
 
 function replacementSearchIsStale(data: Record<string, unknown> | undefined): boolean {
