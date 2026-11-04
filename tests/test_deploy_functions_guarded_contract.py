@@ -729,3 +729,119 @@ def test_repository_manifest_matches_the_live_contract_shape():
             continue
         declared |= set(re.findall(r'defineSecret\("([A-Z0-9_]+)"', path.read_text(encoding="utf-8")))
     assert declared <= set(data["secret_parameter_names"])
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["--new-function", "deleteCommunityPost", "cleanupAvatarMedia"], "NEW_FUNCTION_NOT_A_TARGET"),
+        (["--new-function", "bad-name", "bad-name"], "NEW_FUNCTION_NAME_INVALID"),
+        (
+            ["--new-function", "cleanupAvatarMedia", "--allow-failure-policy", "cleanupAvatarMedia", "cleanupAvatarMedia"],
+            "NEW_FUNCTION_MODE_CONFLICT",
+        ),
+    ],
+)
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+def test_wrapper_refuses_misdeclared_new_functions_before_any_check(argv, message, tmp_path):
+    completed = subprocess.run(
+        ["bash", str(SCRIPTS_DIR / "deploy_functions_guarded.sh"), "--project", "p", "--region", "r", "--env-file", str(tmp_path / "missing.env"), *argv],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert message in completed.stderr
+
+
+def _install_fake_gcloud_with_absent(bin_dir: Path, absent_service: str, deployed_marker: Path) -> None:
+    gcloud = bin_dir / "gcloud"
+    gcloud.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        f"if {absent_service!r} in sys.argv and not os.path.exists({str(deployed_marker)!r}):\n"
+        f"    sys.stderr.write('ERROR: (gcloud.run.services.describe) Cannot find service [{absent_service}]\n')\n"
+        "    sys.exit(1)\n"
+        "target = 'deleteCommunityPost' if " + repr(absent_service) + " in sys.argv else 'cleanupAvatarMedia'\n"
+        "print(json.dumps({'spec': {'template': {'spec': {'containers': ["
+        "{'env': ["
+        "{'name': 'RESEND_FROM_EMAIL', 'value': 'mail@example.com'},"
+        "{'name': 'RESEND_REPLY_TO', 'value': 'reply@example.com'},"
+        "{'name': 'FIREBASE_CONFIG', 'value': '{}'},"
+        "{'name': 'GCLOUD_PROJECT', 'value': 'seolleyeon-final'},"
+        "{'name': 'EVENTARC_CLOUD_EVENT_SOURCE', 'value': 'source'},"
+        "{'name': 'FUNCTION_REGION', 'value': 'asia-northeast3'},"
+        "{'name': 'FUNCTION_TARGET', 'value': target},"
+        "{'name': 'LOG_EXECUTION_ID', 'value': 'true'}"
+        "]}]}}}}))\n",
+        encoding="utf-8",
+    )
+    gcloud.chmod(gcloud.stat().st_mode | stat.S_IXUSR)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+def test_declared_new_function_must_be_absent_and_is_guarded_after_deploy(tmp_path):
+    root, candidate = _root(tmp_path)
+    scripts = root / "scripts"
+    scripts.mkdir()
+    for name in (
+        "deploy_functions_guarded.sh",
+        "deploy_functions_guarded_contract.py",
+        "functions_env_regression_guard.py",
+    ):
+        (scripts / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+    (root / "functions" / "node_modules").mkdir()
+    _install_fake_tsc(root)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "deployed"
+    _install_fake_gcloud_with_absent(bin_dir, "deletecommunitypost", marker)
+    deploy_log = tmp_path / "npx-deploy.log"
+    npx = bin_dir / "npx"
+    npx.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$3\" = \"--version\" ]; then\n"
+        "  printf '15.30.2\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\n' \"$*\" >> '{deploy_log}'\n"
+        f"touch '{marker}'\n",
+        encoding="utf-8",
+    )
+    npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
+    _install_fake_npm(bin_dir)
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+
+    base = [
+        "bash", str(scripts / "deploy_functions_guarded.sh"),
+        "--project", PROJECT, "--region", "asia-northeast3",
+        "--env-file", str(candidate.relative_to(root)),
+        "--allow-multiple-functions",
+    ]
+    # Without the declaration the absent service makes the pre-deploy guard fail.
+    undeclared = subprocess.run(base + ["cleanupAvatarMedia", "deleteCommunityPost"], cwd=root, env=env, capture_output=True, text=True, check=False)
+    assert undeclared.returncode != 0
+    assert not deploy_log.exists()
+
+    completed = subprocess.run(
+        base + ["--new-function", "deleteCommunityPost", "cleanupAvatarMedia", "deleteCommunityPost"],
+        cwd=root, env=env, capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "deleteCommunityPost is new" in completed.stdout
+    assert deploy_log.read_text(encoding="utf-8").strip() == (
+        "-y firebase-tools@15.30.2 deploy --only functions:cleanupAvatarMedia,functions:deleteCommunityPost "
+        "--project seolleyeon-final --non-interactive"
+    )
+    # post-deploy comparison covered both targets (the new one now exists)
+    assert completed.stdout.count("ENV REGRESSION GUARD: PASS") == 2
+
+    # Once it exists, declaring it new again is refused before any deploy.
+    again = subprocess.run(
+        base + ["--new-function", "deleteCommunityPost", "deleteCommunityPost"],
+        cwd=root, env=env, capture_output=True, text=True, check=False,
+    )
+    assert again.returncode != 0
+    assert "NEW_FUNCTION_ALREADY_EXISTS" in again.stderr
