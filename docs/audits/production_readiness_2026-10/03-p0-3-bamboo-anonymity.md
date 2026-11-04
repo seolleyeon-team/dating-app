@@ -168,10 +168,29 @@ containing PR #152), production dry-run.
    - P0-3: `createCommunityPost`, `createCommunityComment`,
      `deleteCommunityPost` (new), `deleteCommunityComment` (new),
      `reportBambooContent` (new), `onBambooCommentCreated`,
-     `onBambooPostLikeCreated`, `reportAndBlockUser`, `cleanupAvatarMedia`,
-     `preparePlayReviewSession`; `purgeAccountDeletionRetention` only if its
-     archive diff shows a changed code path;
+     `onBambooPostLikeCreated`, `cleanupAvatarMedia`,
+     `preparePlayReviewSession`, `decideCommunityReport` (moderation hide via
+     mappings);
    - NEW-19: `blindMeetingLifecycleTick`, `blindMeetingMatchingTick`.
+
+   Not deployed, by decision after the live-archive audit:
+   - `reportAndBlockUser` — the live revision (2026-09-21) carries code that is
+     in **no git ref** (Bamboo content snapshot, deadline, moderation alert,
+     review-fixture fallback). Redeploying from this tree would delete those
+     moderation features. It is also unnecessary for privacy: it checks the
+     client-supplied uid against the public `authorId`, which the migration
+     removes, so after step 4 it can no longer confirm Bamboo authorship nor
+     create real-name blocks for Bamboo (always not-found). The new client
+     reports through `reportBambooContent`. Source recovery is backlog item
+     NEW-20.
+   - `purgeAccountDeletionRetention` — runs the same account-deletion plan,
+     but its live code path differs from this tree by ~280 lines of unrelated
+     avatar source-retention logic (the area of the 2026-09-08 data-loss
+     incident). Not shipped with P0-3; residual: for accounts deleted outside
+     the app, the private Bamboo mappings / report-hide entries are not
+     removed by that job (server-only data, no public exposure).
+   - Moderation console functions other than `decideCommunityReport` are
+     byte-identical in their code path and need no redeploy.
    `shared/notify.ts` changes behaviour only for Bamboo types, so no other
    notification producer needs a redeploy.
 4. **Migration** — dry-run → canary (`--apply --allow-production --only-post`
