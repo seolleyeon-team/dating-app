@@ -76,10 +76,28 @@ class CommunityProvider extends ChangeNotifier {
   /// 이 글을 로그인한 사용자가 썼는가 (삭제 버튼 vs 신고 버튼).
   bool isMine(String postId) => _myPostIds.contains(postId);
 
+  /// P1-4: 인증 상태가 바뀌는 즉시 호출된다 (app.dart 의
+  /// `ChangeNotifierProxyProvider<AuthProvider, CommunityProvider>`). 다음
+  /// 피드 요청을 기다리지 않고 이전 계정의 목록·커서·"내 글" 표시를 비우고
+  /// 리스너에 알린다. 로그아웃(null)도 같은 경로다. 요청 시점의 lazy 검사
+  /// ([_resetIfAccountChanged]) 는 그대로 남아 두 번째 방어선이 된다.
+  void bindUser(String? uid) {
+    final next = uid?.trim() ?? '';
+    if (_sessionUid == next) return;
+    _resetTo(next);
+    _isInitialized = false;
+    notifyListeners();
+  }
+
   /// 계정이 바뀌었으면 이전 계정의 모든 캐시를 버린다. 바뀌었으면 true.
   bool _resetIfAccountChanged() {
     final uid = _currentUid();
     if (_sessionUid == uid) return false;
+    _resetTo(uid);
+    return true;
+  }
+
+  void _resetTo(String uid) {
     _sessionUid = uid;
     for (final tab in tabs) {
       _postsByTab[tab] = <PostModel>[];
@@ -89,7 +107,6 @@ class CommunityProvider extends ChangeNotifier {
       _isLoadingMoreByTab[tab] = false;
     }
     _myPostIds.clear();
-    return true;
   }
 
   Future<void> initialize() async {
