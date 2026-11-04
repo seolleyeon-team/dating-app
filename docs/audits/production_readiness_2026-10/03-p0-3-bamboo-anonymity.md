@@ -241,3 +241,37 @@ by the owner with the AAB/Play work.
   `reportAndBlockUser` flows (profile/chat) is unchanged — those reporters are
   not anonymous by product design, but the reverse block document does tell
   the reported user who reported them (unrelated finding, logged for P1).
+
+## 8. Production rollout — 2026-11-04 (executed)
+
+Deployment candidate: `7dd3b992` (PR #153 head containing PR #152 and the
+PR #146 moderation source). Every deployed Functions archive is byte-identical
+to this tree (219/219 files, all 12 functions).
+
+| Step | Operation | Result | Evidence |
+|---|---|---|---|
+| 1 Indexes | created `bamboo_post_authors` and `playReviewBambooPostAuthors` (`ownerUid ASC, createdAt DESC`) | READY (`CICAgNi4-ZIK`, `CICAgJjUgIcK`); 35 → 37 composite indexes, none removed | VERIFIED LIVE |
+| 2 Rules (transition) | `firestore.p03-transition.rules` | ruleset `d615d84b` (08:45:10Z) byte-identical; live client check 4/4 (Bamboo list closed, identity-bearing get denied, like list denied, residue 0) | VERIFIED LIVE |
+| 3 Functions | guarded deploy of 12 (`--new-function` for the 3 new callables; 31 additions declared one by one, all from the canonical env file) | pre- and post-deploy guard PASS (0 removed / 0 changed / 0 undeclared; new services equal the env file); 98 → 101 functions; all Ready, 100 % traffic, SA `810450765203-compute@…`, triggers and schedulers preserved; 0 errors since | VERIFIED LIVE |
+| 4 Migration | canary `--only-post` on the TRUSTED_HISTORICAL record (7/7 postconditions), then full `--apply --checkpoint`, idempotent re-run (0 writes) | production: 21 redacted (1 existing mapping, 20 LEGACY_AUTHOR_ONLY → `bamboo_ownership_unresolved`), 1 mapping created (canary); review: 4 redacted; notifications: 38 scanned, 0 to sanitise; anomalies 0, raced 0; `--verify` **violations 0** | VERIFIED LIVE |
+| 4b Rules (final) | `firestore.rules` | ruleset `183f15d7` (09:30:10Z) byte-identical; P0-1 / P0-2 / NEW-18 helpers present | VERIFIED LIVE |
+| 5 Penetration | throwaway e-mail/password identities (P0-1 smoke method), real client SDK against live Rules; content in the server writer's schema so the live triggers run | **43/43 PASS**, residue 0 (also 0 on a delayed re-check) | VERIFIED LIVE |
+
+Deployed revisions: `createcommunitypost-00003-mol`, `createcommunitycomment-00003-moj`,
+`deletecommunitypost-00001-naw`, `deletecommunitycomment-00001-gim`,
+`reportbamboocontent-00001-her`, `onbamboocommentcreated-00008-jaz`,
+`onbamboopostlikecreated-00007-saz`, `cleanupavatarmedia-00015-taq`,
+`prepareplayreviewsession-00006-noy`, `decidecommunityreport-00002-xab`,
+`blindmeetinglifecycletick-00004-duc`, `blindmeetingmatchingtick-00005-pig`.
+
+Not verified live (limitation): the callables' behaviour. Minting an App Check
+token or a custom token needs `iam.serviceAccounts.signBlob`, which the
+operator credential does not have, and granting it (or registering an App
+Check debug token) is a security-setting change outside this task. Live:
+every callable rejects calls without App Check (HTTP 401). Behaviour: emulator
+suites on the identical source (server suite 10/10 incl. moderation).
+
+Like-counter drift (reported, not repaired): 8 imported production posts carry
+a `likeCount` with no like documents. It cannot block an unlike (the bound
+rule bites only when documents exceed the counter); repairing it would change
+visible counts.
