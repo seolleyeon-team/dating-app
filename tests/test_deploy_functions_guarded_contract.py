@@ -760,7 +760,7 @@ def _install_fake_gcloud_with_absent(bin_dir: Path, absent_service: str, deploye
         "#!/usr/bin/env python3\n"
         "import json, os, sys\n"
         f"if {absent_service!r} in sys.argv and not os.path.exists({str(deployed_marker)!r}):\n"
-        f"    sys.stderr.write('ERROR: (gcloud.run.services.describe) Cannot find service [{absent_service}]\n')\n"
+        f"    sys.stderr.write('ERROR: (gcloud.run.services.describe) Cannot find service [{absent_service}]')\n"
         "    sys.exit(1)\n"
         "target = 'deleteCommunityPost' if " + repr(absent_service) + " in sys.argv else 'cleanupAvatarMedia'\n"
         "print(json.dumps({'spec': {'template': {'spec': {'containers': ["
