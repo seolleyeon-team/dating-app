@@ -1,5 +1,5 @@
 /**
- * P0-3 마이그레이션 — 순수 분류·안전장치 테스트 (에뮬레이터 불필요).
+ * P0-3 마이그레이션 — 순수 분류·출처 근거·안전장치 테스트 (에뮬레이터 불필요).
  *   node --test scripts/bamboo_privacy_migration.test.mjs
  */
 import assert from "node:assert/strict";
@@ -8,67 +8,129 @@ import test from "node:test";
 import {
   assertRunnable,
   classifyRecord,
+  createRuleBindsAuthor,
   notificationNeedsSanitizing,
   parseArgs,
+  provenanceFor,
+  rulesetAt,
 } from "./bamboo_privacy_migration.mjs";
 
 const P = { postId: "p1" };
 const C = { postId: "p1", commentId: "c1" };
 
-test("매핑이 public authorId 와 같으면 redact", () => {
+test("기존 매핑이 public authorId 와 같으면 redact (TRUSTED_EXISTING_MAPPING)", () => {
   assert.deepEqual(
-    classifyRecord({ publicData: { authorId: "a" }, mapping: { postId: "p1", ownerUid: "a" }, authorAccountExists: true, expected: P }),
-    { status: "MAPPING_VERIFIED", action: "redact", ownerUid: "a" }
+    classifyRecord({ publicData: { authorId: "a" }, mapping: { postId: "p1", ownerUid: "a" }, provenance: "none", expected: P }),
+    { status: "TRUSTED_EXISTING_MAPPING", action: "redact", ownerUid: "a" }
   );
 });
 
 test("매핑이 다른 사람을 가리키면 그 레코드는 멈춘다 (conflict)", () => {
   assert.equal(
-    classifyRecord({ publicData: { authorId: "a" }, mapping: { postId: "p1", ownerUid: "b" }, authorAccountExists: true, expected: P }).action,
+    classifyRecord({ publicData: { authorId: "a" }, mapping: { postId: "p1", ownerUid: "b" }, provenance: "historical", expected: P }).action,
     "skip"
   );
 });
 
 test("깨진 매핑(빈 ownerUid, 다른 글/댓글을 가리킴)은 malformed", () => {
   for (const mapping of [{ postId: "p1", ownerUid: "" }, { postId: "p2", ownerUid: "a" }]) {
-    assert.equal(classifyRecord({ publicData: { authorId: "a" }, mapping, authorAccountExists: true, expected: P }).status, "MALFORMED");
+    assert.equal(classifyRecord({ publicData: { authorId: "a" }, mapping, provenance: "none", expected: P }).status, "MALFORMED");
   }
   assert.equal(
-    classifyRecord({ publicData: { authorId: "a" }, mapping: { postId: "p1", commentId: "c9", ownerUid: "a" }, authorAccountExists: true, expected: C }).status,
+    classifyRecord({ publicData: { authorId: "a" }, mapping: { postId: "p1", commentId: "c9", ownerUid: "a" }, provenance: "none", expected: C }).status,
     "MALFORMED"
   );
 });
 
-test("매핑이 없으면 실존 계정일 때만 매핑을 만들고 redact, 아니면 unverifiable", () => {
+test("Phase 0A: 매핑이 없으면 출처 근거가 있을 때만 매핑을 만든다", () => {
   assert.deepEqual(
-    classifyRecord({ publicData: { authorId: "a" }, mapping: null, authorAccountExists: true, expected: P }),
-    { status: "MAPPING_MISSING", action: "createMappingAndRedact", ownerUid: "a" }
+    classifyRecord({ publicData: { authorId: "a" }, mapping: null, provenance: "historical", expected: P }),
+    { status: "TRUSTED_HISTORICAL_PROVENANCE", action: "createMappingAndRedact", ownerUid: "a" }
   );
+  // 계정이 존재한다는 것만으로는 근거가 아니다 — 소유자 없이 지우고 미해결로 기록
   assert.deepEqual(
-    classifyRecord({ publicData: { authorId: "ghost" }, mapping: null, authorAccountExists: false, expected: P }),
-    { status: "UNVERIFIABLE", action: "skip" }
+    classifyRecord({ publicData: { authorId: "a" }, mapping: null, provenance: "none", expected: P }),
+    { status: "LEGACY_AUTHOR_ONLY", action: "redactUnresolved" }
   );
 });
 
-test("이미 지워진 문서는 아무 것도 하지 않는다 (멱등)", () => {
+test("소유자가 불확실해도 public 식별 정보는 남기지 않는다", () => {
   assert.equal(
-    classifyRecord({ publicData: { content: "x" }, mapping: { postId: "p1", ownerUid: "a" }, authorAccountExists: false, expected: P }).action,
+    classifyRecord({ publicData: { nickname: "닉" }, mapping: null, provenance: "none", expected: P }).action,
+    "redactUnresolved"
+  );
+  assert.equal(
+    classifyRecord({ publicData: { nickname: "닉" }, mapping: { postId: "p1", ownerUid: "a" }, provenance: "none", expected: P }).action,
+    "redact"
+  );
+});
+
+test("멱등: 이미 정리된 문서는 아무 것도 하지 않는다", () => {
+  assert.equal(
+    classifyRecord({ publicData: { content: "x" }, mapping: { postId: "p1", ownerUid: "a" }, provenance: "none", expected: P }).action,
     "none"
   );
   assert.equal(
-    classifyRecord({ publicData: { content: "x" }, mapping: null, authorAccountExists: false, expected: P }).status,
-    "UNVERIFIABLE_NO_OWNER"
+    classifyRecord({ publicData: { content: "x" }, mapping: null, provenance: "none", unresolvedRecorded: true, expected: P }).status,
+    "UNRESOLVED_RECORDED"
+  );
+  // 소유 근거도, 미해결 기록도 없는 글은 기록을 남긴다
+  assert.equal(
+    classifyRecord({ publicData: { content: "x" }, mapping: null, provenance: "none", unresolvedRecorded: false, expected: P }).action,
+    "redactUnresolved"
   );
 });
 
-test("authorId 외 식별 필드도 redact 대상이고, 소유자 근거가 없으면 멈춘다", () => {
+const BOUND_RULES = `service cloud.firestore {
+  match /bamboo_posts/{postId} {
+    allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid && request.resource.data.content is string;
+    match /comments/{commentId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.authorId == request.auth.uid;
+    }
+  }
+}`;
+
+test("규칙 근거: create 가 authorId 를 요청자에게 묶을 때만 인정, OR 분기나 서버 전용은 불인정", () => {
+  assert.equal(createRuleBindsAuthor(BOUND_RULES, "bamboo_posts", "post"), true);
+  assert.equal(createRuleBindsAuthor(BOUND_RULES, "bamboo_posts", "comment"), true);
+  assert.equal(createRuleBindsAuthor(BOUND_RULES, "playReviewBambooPosts", "post"), false);
   assert.equal(
-    classifyRecord({ publicData: { nickname: "닉" }, mapping: { postId: "p1", ownerUid: "a" }, authorAccountExists: false, expected: P }).action,
-    "redact"
+    createRuleBindsAuthor(BOUND_RULES.replace("request.resource.data.content is string", "true || false"), "bamboo_posts", "post"),
+    false
   );
   assert.equal(
-    classifyRecord({ publicData: { nickname: "닉" }, mapping: null, authorAccountExists: false, expected: P }).action,
-    "skip"
+    createRuleBindsAuthor("match /bamboo_posts/{postId} { allow create: if true; }", "bamboo_posts", "post"),
+    false
+  );
+  assert.equal(
+    createRuleBindsAuthor("match /bamboo_posts/{postId} { allow create: if false; }", "bamboo_posts", "post"),
+    false
+  );
+});
+
+function fakeSnap({ authorId, created, updated }) {
+  const ts = (ms) => ({ seconds: Math.floor(ms / 1000), nanoseconds: (ms % 1000) * 1e6, toMillis: () => ms });
+  return { data: () => ({ authorId }), createTime: ts(created), updateTime: ts(updated ?? created) };
+}
+
+test("출처 근거: 그 시각의 규칙, 무수정, 단독 커밋이 모두 있어야 historical", () => {
+  const history = [
+    { name: "open", createTimeMs: 0, source: "match /bamboo_posts/{postId} { allow create: if true; }" },
+    { name: "bound", createTimeMs: 1000, source: BOUND_RULES },
+  ];
+  const noShare = new Map();
+  const at = (snap) => provenanceFor({ snap, rootName: "bamboo_posts", kind: "post", history, sharedCommit: noShare });
+  assert.equal(rulesetAt(history, 1500).name, "bound");
+  assert.equal(at(fakeSnap({ authorId: "a", created: 2000 })), "historical");
+  assert.equal(at(fakeSnap({ authorId: "a", created: 500 })), "none", "rule did not bind authorId then");
+  assert.equal(at(fakeSnap({ authorId: "a", created: 2000, updated: 3000 })), "none", "updated after creation");
+  assert.equal(at(fakeSnap({ authorId: "", created: 2000 })), "none");
+  const shared = new Map([["2.000000000", new Set(["a", "b"])]]);
+  assert.equal(
+    provenanceFor({ snap: fakeSnap({ authorId: "a", created: 2000 }), rootName: "bamboo_posts", kind: "post", history, sharedCommit: shared }),
+    "none",
+    "same commit as another author's document = bulk import"
   );
 });
 
@@ -88,7 +150,7 @@ test("기본은 dry-run 이고 production 쓰기는 --allow-production 이 필�
   assert.doesNotThrow(() => assertRunnable(parseArgs(["--project", "seolleyeon-final", "--apply", "--allow-production"]), {}));
   assert.throws(() => assertRunnable(parseArgs(["--project", "someone-else"]), {}), /allowlist/);
   assert.throws(() => parseArgs(["--project", "seolleyeon-final", "--apply", "--verify"]), /exclusive/);
-  // 테스트 프로젝트는 에뮬레이터로만 쓴다
+  assert.throws(() => parseArgs(["--project", "seolleyeon-final", "--only-post", "../x"]), /document id/);
   assert.throws(() => assertRunnable(parseArgs(["--project", "demo-p03-migration", "--apply"]), {}), /emulator/);
   assert.doesNotThrow(() =>
     assertRunnable(parseArgs(["--project", "demo-p03-migration", "--apply"]), { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" })

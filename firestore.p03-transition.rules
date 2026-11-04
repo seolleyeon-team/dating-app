@@ -1,0 +1,2558 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model (Google Play review additions)
+// ===============================================================
+// users/{uid}: private account. accountType/dataPartition/reviewAccess/
+//   reviewProfileReady/reviewFixtureEnabled are optional server-owned fields.
+// publicProfiles/{uid}: authenticated display-only profile. dataPartition is
+//   "production" or "play_review"; reviewFixtureEnabled is boolean.
+// interactions/{id}: fromUserId/toUserId/action/source strings, optional map
+//   metadata, timestamp createdAt, optional immutable dataPartition.
+// playReviewRateLimits/{ipHash}, playReviewConfig/current,
+// playReviewSessions/{uid}, playReviewEvents/{uid}/events/{id}: server-only.
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isYonseiEmail(email) {
+      return email != null && email.matches('^.+@yonsei\\.ac\\.kr$');
+    }
+
+    // -----------------------------------------------------------------------
+    // Email-link token exchange (app stores Firestore token, web reads token)
+    // -----------------------------------------------------------------------
+    // A token document is NOT proof of identity. It only carries the
+    // (kakaoUserId, email) pair from the server to the verification web page.
+    // Cloud Functions writes this document with the Admin SDK immediately
+    // before sending the Firebase action link. Client writes are deliberately
+    // denied so this endpoint cannot be abused as a mail relay or token forge.
+    match /emailLinkTokens/{token} {
+      allow create: if false;
+
+      // The verification page is unauthenticated when the email link opens it,
+      // so it has to read the document it was handed. The document id is a
+      // UUIDv4 that only ever travels inside the email link.
+      allow get: if true;
+      allow list: if false;
+
+      allow update, delete: if false;
+    }
+
+        // -----------------------------------------------------------------------
+    // Users
+    // -----------------------------------------------------------------------
+    // If users doc has no kakaoUserId field, rules evaluate it as null and allow profile edits.
+    function usersDocKakaoIdOk(data, docKakaoId) {
+      return data.get('kakaoUserId', null) == null ||
+          data.get('kakaoUserId', null) == docKakaoId;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Canonical app session gate (auth re-architecture, identity-contract §2).
+    // Temporary email-link sessions (pre-exchange) carry neither claim;
+    // legacy Kakao custom tokens carry kakaoUserId; new canonical tokens
+    // minted by completePrimaryStudentEmailAuth carry appSession.
+    function isCanonicalAppSession() {
+      return request.auth != null &&
+          request.auth.token.get('playReviewer', false) != true &&
+          (request.auth.token.get('appSession', false) == true ||
+            request.auth.token.get('kakaoUserId', null) != null);
+    }
+
+    // Review traffic is an isolated data plane. Existing production documents
+    // predate dataPartition, so a missing value remains production.
+    function callerDataPartition() {
+      return request.auth != null &&
+          ['play-reviewer-v1', 'play-fixture-b-01'].hasAny([request.auth.uid]) &&
+          request.auth.token.get('appSession', false) == true &&
+          request.auth.token.get('playReviewer', false) == true &&
+          request.auth.token.get('dataPartition', 'production') == 'play_review'
+        ? 'play_review'
+        : 'production';
+    }
+
+    function documentDataPartition(data) {
+      return data.get('dataPartition', 'production');
+    }
+
+    function samePartitionAsCaller(data) {
+      return request.auth != null &&
+          documentDataPartition(data) == callerDataPartition();
+    }
+
+    function isPlayReviewSession() {
+      return request.auth != null &&
+          ['play-reviewer-v1', 'play-fixture-b-01'].hasAny([request.auth.uid]) &&
+          request.auth.token.get('appSession', false) == true &&
+          request.auth.token.get('playReviewer', false) == true &&
+          request.auth.token.get('dataPartition', 'production') == 'play_review';
+    }
+
+    function reviewAuthorityFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'accountType',
+        'dataPartition',
+        'reviewAccess',
+        'reviewProfileReady',
+        'reviewFixtureEnabled',
+        'reviewFixtureLoginEnabled',
+        'reviewFixtureLoginActivatedAt'
+      ]);
+    }
+
+    function interactionPartitionIsValid() {
+      return request.resource.data.toUserId is string &&
+          samePartitionAsCaller(
+            get(/databases/$(database)/documents/users/$(request.resource.data.toUserId)).data
+          ) &&
+          (
+            (isPlayReviewSession() &&
+              request.resource.data.dataPartition == 'play_review') ||
+            (!isPlayReviewSession() &&
+              request.resource.data.get('dataPartition', 'production') == 'production')
+          );
+    }
+
+    // Anonymous questions must stay in the caller's data plane just like
+    // likes.  This admits reviewer-to-fixture traffic while preventing either
+    // a reviewer or an ordinary account from contacting the other partition.
+    function askRecipientPartitionIsValid() {
+      return request.resource.data.toUserId is string &&
+          samePartitionAsCaller(
+            get(/databases/$(database)/documents/users/$(request.resource.data.toUserId)).data
+          );
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Community counters are client-written via FieldValue.increment(±1).
+    // Without a ±1 gate anyone can set likeCount/score7d to an arbitrary rank.
+    function intFieldUnchangedOrDeltaOne(field) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([field]) ||
+        (
+          request.resource.data[field] is int &&
+          resource.data[field] is int &&
+          (
+            request.resource.data[field] == resource.data[field] + 1 ||
+            request.resource.data[field] == resource.data[field] - 1
+          )
+        );
+    }
+
+    function nonNegativeIntField(field) {
+      return !(field in request.resource.data) ||
+        (
+          request.resource.data[field] is int &&
+          request.resource.data[field] >= 0
+        );
+    }
+
+    function bambooPostCounterUpdateOk() {
+      return intFieldUnchangedOrDeltaOne('likeCount') &&
+        intFieldUnchangedOrDeltaOne('commentCount') &&
+        intFieldUnchangedOrDeltaOne('score7d') &&
+        nonNegativeIntField('likeCount') &&
+        nonNegativeIntField('commentCount') &&
+        nonNegativeIntField('score7d');
+    }
+
+    // SEC-P3-01: ±1 게이트만으로는 랭킹 무결성이 부족하다.
+    //  - likeCount 는 실제 like 문서(likes/{uid}) 생성/삭제와 묶여야 한다.
+    //  - score7d 는 단독으로 움직일 수 없다(랭킹 직접 조작 방지).
+    // 아래 헬퍼들이 이 두 불변식을 강제한다. 기존 클라 트랜잭션
+    // (togglePostLike/addComment/softDeleteComment)은 카운터와 소스 문서를
+    // 한 원자 커밋으로 쓰므로 회귀가 없다.
+
+    function bambooFieldChanged(field) {
+      return request.resource.data.diff(resource.data)
+        .affectedKeys().hasAny([field]);
+    }
+
+    function bambooFieldDelta(field) {
+      return request.resource.data[field] - resource.data[field];
+    }
+
+    // likeCount 가 바뀌면 요청자(auth.uid)의 like 문서 존재상태가 이번 커밋에서
+    // 그에 맞게 "전이"되어야 한다. +1 은 신규 생성, -1 은 삭제로만 가능.
+    // 이미 좋아요한 사용자가 likeCount 를 또 +1 하는 이중 증가를 막는다.
+    function bambooLikeCountBound(postId) {
+      return !bambooFieldChanged('likeCount') ||
+        (
+          bambooFieldDelta('likeCount') == 1 &&
+          !exists(/databases/$(database)/documents/bamboo_posts/$(postId)/likes/$(request.auth.uid)) &&
+          existsAfter(/databases/$(database)/documents/bamboo_posts/$(postId)/likes/$(request.auth.uid))
+        ) ||
+        (
+          bambooFieldDelta('likeCount') == -1 &&
+          exists(/databases/$(database)/documents/bamboo_posts/$(postId)/likes/$(request.auth.uid)) &&
+          !existsAfter(/databases/$(database)/documents/bamboo_posts/$(postId)/likes/$(request.auth.uid))
+        );
+    }
+
+    // score7d 는 like/comment 카운터가 같은 부호로 함께 바뀔 때만 움직인다.
+    // (score7d 단독 +1 을 반복하는 직접 랭킹 조작 차단.)
+    function bambooScore7dMovesWithCounters() {
+      return !bambooFieldChanged('score7d') ||
+        (
+          bambooFieldChanged('likeCount') &&
+          bambooFieldDelta('score7d') == bambooFieldDelta('likeCount')
+        ) ||
+        (
+          bambooFieldChanged('commentCount') &&
+          bambooFieldDelta('score7d') == bambooFieldDelta('commentCount')
+        );
+    }
+
+    // P0-3 review M1: a like document may only appear or disappear together
+    // with the matching ±1 on its parent's likeCount. Without this a user could
+    // repeat (create like + likeCount+1) then (delete like alone) and inflate
+    // likeCount/score7d without bound.
+    function likeParentMoves(parentPath, delta) {
+      return getAfter(parentPath).data.likeCount == get(parentPath).data.likeCount + delta;
+    }
+
+    function prodBambooPostPath(postId) {
+      return /databases/$(database)/documents/bamboo_posts/$(postId);
+    }
+
+    function prodBambooCommentPath(postId, commentId) {
+      return /databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId);
+    }
+
+    // P0-3 TRANSITION ONLY (scripts/build_p03_transition_rules.mjs). A Bamboo
+    // document that still carries an author-identifying field is unreadable
+    // until the historical migration removes it (get only). Bamboo list
+    // queries are closed while this ruleset is live: for a query the Rules
+    // engine sees only the query constraints, so this predicate cannot
+    // protect a list.
+    function noPublicBambooIdentity() {
+      return !resource.data.keys().hasAny([
+        'authorId', 'authorUid', 'ownerUid', 'userId', 'uid', 'actorId',
+        'actorName', 'nickname', 'authorName', 'authorNickname',
+        'authorProfileUrl', 'profileId'
+      ]);
+    }
+
+    function bambooCommentCounterUpdateOk() {
+      return intFieldUnchangedOrDeltaOne('likeCount') &&
+        nonNegativeIntField('likeCount');
+    }
+
+    // P0-3: the production comment likeCount was only ±1-gated, so anyone could
+    // repeat +1. Bind it to the caller's own comment-like document, as the
+    // review partition already did.
+    function bambooCommentLikeCountBound(postId, commentId) {
+      return !bambooFieldChanged('likeCount') ||
+        (
+          bambooFieldDelta('likeCount') == 1 &&
+          !exists(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid)) &&
+          existsAfter(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid))
+        ) ||
+        (
+          bambooFieldDelta('likeCount') == -1 &&
+          exists(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid)) &&
+          !existsAfter(/databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid))
+        );
+    }
+
+    // Review Bamboo Forest is deliberately a different collection root. A
+    // production query over legacy bamboo_posts cannot be proven to exclude a
+    // dataPartition field it does not filter on, so using a partition column
+    // there would either leak review data or require migrating all legacy
+    // posts. These helpers bind review-only counter writes to that root.
+    function reviewBambooPostPath(postId) {
+      return /databases/$(database)/documents/playReviewBambooPosts/$(postId);
+    }
+
+    function reviewBambooCommentPath(postId, commentId) {
+      return /databases/$(database)/documents/playReviewBambooPosts/$(postId)/comments/$(commentId);
+    }
+
+    function reviewBambooParentExists(postId) {
+      return exists(reviewBambooPostPath(postId)) &&
+        get(reviewBambooPostPath(postId)).data.dataPartition == 'play_review';
+    }
+
+    function reviewBambooLikeCountBound(postId) {
+      return !bambooFieldChanged('likeCount') ||
+        (
+          bambooFieldDelta('likeCount') == 1 &&
+          !exists(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/likes/$(request.auth.uid)) &&
+          existsAfter(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/likes/$(request.auth.uid))
+        ) ||
+        (
+          bambooFieldDelta('likeCount') == -1 &&
+          exists(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/likes/$(request.auth.uid)) &&
+          !existsAfter(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/likes/$(request.auth.uid))
+        );
+    }
+
+    function reviewBambooCommentLikeCountBound(postId, commentId) {
+      return !bambooFieldChanged('likeCount') ||
+        (
+          bambooFieldDelta('likeCount') == 1 &&
+          !exists(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid)) &&
+          existsAfter(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid))
+        ) ||
+        (
+          bambooFieldDelta('likeCount') == -1 &&
+          exists(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid)) &&
+          !existsAfter(/databases/$(database)/documents/playReviewBambooPosts/$(postId)/comments/$(commentId)/likes/$(request.auth.uid))
+        );
+    }
+
+    function isVerifiedOwner(kakaoUserId) {
+      return isSelf(kakaoUserId);
+    }
+
+    // True when the caller holds a *verified* Yonsei mailbox. Used as the trust
+    // anchor for student verification: the only thing that may set
+    // isStudentVerified is a session Firebase itself proved owns the mailbox.
+    function hasVerifiedYonseiEmail() {
+      return request.auth != null &&
+          request.auth.token.email is string &&
+          request.auth.token.email_verified == true &&
+          isYonseiEmail(request.auth.token.email);
+    }
+
+    function writesOwnStudentEmail(data) {
+      return data.studentEmail is string &&
+          data.studentEmail.lower() == request.auth.token.email.lower();
+    }
+
+    // A mailbox may be bound to a user document once. Rebinding is the profile
+    // takeover primitive: isUserDocOwner() derives ownership from studentEmail,
+    // so whoever can rewrite that field inherits the account.
+    function studentEmailIsUnboundOrMine(existing) {
+      return !existing.keys().hasAny(['studentEmail']) ||
+          existing.studentEmail == null ||
+          existing.studentEmail == "" ||
+          existing.studentEmail.lower() == request.auth.token.email.lower();
+    }
+
+    // P0-1: a verified mailbox proves WHO the caller is, not WHICH account they
+    // may verify. The target is bound by the emailLinkTokens document that
+    // sendStudentVerificationEmail writes with the Admin SDK for the Kakao
+    // session that asked for the mail: {email, kakaoUserId: <that session's
+    // uid>, expiresAt}. Clients can never create or edit that document, so a
+    // mailbox can only verify the account that requested its link. Primary-auth
+    // tokens carry no kakaoUserId and therefore never satisfy this.
+    function emailLinkTokenBindsCallerTo(kakaoUserId, tokenId) {
+      return tokenId is string &&
+          tokenId.matches('^[A-Za-z0-9_-]{1,128}$') &&
+          exists(/databases/$(database)/documents/emailLinkTokens/$(tokenId)) &&
+          emailLinkTokenDataBindsCallerTo(
+            get(/databases/$(database)/documents/emailLinkTokens/$(tokenId)).data,
+            kakaoUserId
+          );
+    }
+
+    function emailLinkTokenDataBindsCallerTo(tokenData, kakaoUserId) {
+      return tokenData.get('kakaoUserId', null) is string &&
+          tokenData.kakaoUserId == kakaoUserId &&
+          tokenData.get('email', null) is string &&
+          tokenData.email.lower() == request.auth.token.email.lower() &&
+          tokenData.get('expiresAt', null) is timestamp &&
+          tokenData.expiresAt > request.time;
+    }
+
+    // P0-1 uniqueness: one mailbox ↔ one account. Rules cannot decide that
+    // across documents, so the server decides it atomically when
+    // sendStudentVerificationEmail reserves studentEmailBindings/{sha256(email)}
+    // for the requesting account (same transaction as the token). The hosted
+    // page's direct write is honoured only when that reservation names the
+    // target document; a mailbox already bound elsewhere never passes.
+    function studentEmailBindingPath() {
+      return /databases/$(database)/documents/studentEmailBindings/$(hashing.sha256(request.auth.token.email.lower()).toHexString().lower());
+    }
+
+    function studentEmailBindingNamesTarget(kakaoUserId) {
+      return exists(studentEmailBindingPath()) &&
+          get(studentEmailBindingPath()).data.get('appUserId', null) == kakaoUserId;
+    }
+
+    function doesNotSelfAssertStudentVerification(data) {
+      return (!data.keys().hasAny(['isStudentVerified']) ||
+              data.isStudentVerified != true) &&
+          (!data.keys().hasAny(['studentEmail']) ||
+              data.studentEmail == null ||
+              data.studentEmail == "");
+    }
+
+    function isUserDocOwner(kakaoUserId) {
+      return request.auth != null &&
+          (
+            request.auth.uid == kakaoUserId ||
+            (
+              request.auth.token.email is string &&
+              request.auth.token.email_verified == true &&
+              isYonseiEmail(request.auth.token.email) &&
+              resource.data.studentEmail is string &&
+              isYonseiEmail(resource.data.studentEmail) &&
+              request.auth.token.email == resource.data.studentEmail
+            )
+          );
+    }
+
+    function isStorageSourcePath(value) {
+      return value is string &&
+          (
+            value.lower().matches('^https://storage\\.googleapis\\.com/.*') ||
+            value.lower().matches('^https://firebasestorage\\.googleapis\\.com/.*')
+          ) &&
+          (
+            value.lower().matches('.*/source/.*') ||
+            value.lower().matches('.*%2fsource%2f.*')
+          );
+    }
+
+    function isSafePublicMediaUrl(value) {
+      return value is string &&
+          !value.lower().matches('^gs://.*') &&
+          !value.lower().matches('^gcs://.*') &&
+          !value.lower().matches('.*seolleyeon-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-final-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-festival-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-final-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-festival-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-chat-profile-photos.*') &&
+          !value.lower().matches('.*seolleyeon-final-chat-profile-photos.*') &&
+          !value.lower().matches('.*seolleyeon-festival-chat-profile-photos.*') &&
+          !value.lower().matches('.*x-goog-.*') &&
+          !value.lower().matches('.*x-amz-.*') &&
+          !value.lower().matches('.*googleaccessid.*') &&
+          !value.lower().matches('.*signature=.*') &&
+          !value.lower().matches('.*expires=.*') &&
+          !value.lower().matches('.*awsaccesskeyid.*') &&
+          !value.lower().matches('.*signedurl.*') &&
+          !isStorageSourcePath(value);
+    }
+
+    function isApprovedAvatarStoragePath(value) {
+      return value is string &&
+          (
+            value.matches('^gs://seolleyeon-final-approved-avatars/users/[^/]+/avatar/[^/]+$') ||
+            value.matches('^gs://seolleyeon-festival-approved-avatars/users/[^/]+/avatar/[^/]+$')
+          );
+    }
+
+    function avatarPublicMediaOk(avatar) {
+      return avatar is map &&
+          !avatar.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'qaEmbeddings',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls'
+          ]) &&
+          (!avatar.keys().hasAny(['approvedAvatarUrl']) ||
+            avatar.approvedAvatarUrl == null ||
+            avatar.approvedAvatarUrl == "" ||
+            isSafePublicMediaUrl(avatar.approvedAvatarUrl)) &&
+          (!avatar.keys().hasAny(['approvedAvatarStoragePath']) ||
+            avatar.approvedAvatarStoragePath == null ||
+            avatar.approvedAvatarStoragePath == "" ||
+            isApprovedAvatarStoragePath(avatar.approvedAvatarStoragePath));
+    }
+
+    function onboardingPhotoUrlsOk(onboarding, data) {
+      return !onboarding.keys().hasAny(['photoUrls']) ||
+          (
+            onboarding.photoUrls is list &&
+            onboarding.photoUrls.size() <= 1 &&
+            (
+              onboarding.photoUrls.size() == 0 ||
+              (
+                data.avatar is map &&
+                data.avatar.approvedAvatarUrl is string &&
+                onboarding.photoUrls[0] == data.avatar.approvedAvatarUrl &&
+                isSafePublicMediaUrl(onboarding.photoUrls[0])
+              )
+            )
+          );
+    }
+
+    function onboardingPublicMediaOk(onboarding, data) {
+      return onboarding is map &&
+          !onboarding.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls'
+          ]) &&
+          onboardingPhotoUrlsOk(onboarding, data) &&
+          (
+            !onboarding.keys().hasAny(['avatarUrls']) ||
+            (
+              onboarding.avatarUrls is list &&
+              onboarding.avatarUrls.size() <= 1 &&
+              (
+                onboarding.avatarUrls.size() == 0 ||
+                isSafePublicMediaUrl(onboarding.avatarUrls[0])
+              )
+            )
+          );
+    }
+
+    function avatarApprovalFieldsAbsent(data) {
+      return !data.keys().hasAny(['avatar']) ||
+          !(data.avatar is map) ||
+          !data.avatar.keys().hasAny([
+            'approvedAvatarUrl',
+            'approvedAvatarStoragePath'
+          ]);
+    }
+
+    function onboardingAvatarPhotoFieldsAbsent(data) {
+      let onboarding = data.get('onboarding', {});
+      return onboarding is map &&
+          !onboarding.keys().hasAny([
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
+            'avatarUrls',
+            'photoUrls',
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
+            'gcsUri',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings'
+          ]);
+    }
+
+    function avatarApprovalFieldsUnchanged() {
+      return (
+          request.resource.data.keys().hasAny(['avatar']) &&
+          resource.data.keys().hasAny(['avatar']) &&
+          request.resource.data.avatar is map &&
+          resource.data.avatar is map &&
+          !request.resource.data.avatar.diff(resource.data.avatar).affectedKeys().hasAny([
+            'approvedAvatarUrl',
+            'approvedAvatarStoragePath'
+          ])
+        ) || (
+          !(
+            request.resource.data.keys().hasAny(['avatar']) &&
+            request.resource.data.avatar is map &&
+            request.resource.data.avatar.keys().hasAny([
+              'approvedAvatarUrl',
+              'approvedAvatarStoragePath'
+            ])
+          ) &&
+          !(
+            resource.data.keys().hasAny(['avatar']) &&
+            resource.data.avatar is map &&
+            resource.data.avatar.keys().hasAny([
+              'approvedAvatarUrl',
+              'approvedAvatarStoragePath'
+            ])
+          )
+        );
+    }
+
+    function onboardingAvatarPhotoFieldsUnchanged() {
+      let after = request.resource.data.get('onboarding', {});
+      let before = resource.data.get('onboarding', {});
+      return after is map && before is map &&
+          !after.diff(before).affectedKeys().hasAny([
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
+            'avatarUrls',
+            'photoUrls',
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
+            'gcsUri',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings'
+          ]);
+    }
+
+    function clientDoesNotCreateAvatarDisplayFields(data) {
+      return avatarApprovalFieldsAbsent(data) &&
+          onboardingAvatarPhotoFieldsAbsent(data);
+    }
+
+    function clientDoesNotModifyAvatarDisplayFields() {
+      return avatarApprovalFieldsUnchanged() &&
+          onboardingAvatarPhotoFieldsUnchanged();
+    }
+
+    function publicUserMediaOk(data) {
+      return !data.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'sourcePhotoGcsUris',
+            'chatRealPhoto',
+            'chatRealPhotoUrl',
+            'realPhotoUrl',
+            'realProfilePhotoUrl',
+            'gcsUri',
+            'signedUrl',
+            'signedUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls',
+            'previewUrl',
+            'previewUrls',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'qaEmbeddings'
+          ]) &&
+          (!data.keys().hasAny(['profileImageUrl']) ||
+            data.profileImageUrl == null ||
+            data.profileImageUrl == "" ||
+            (
+              data.avatar is map &&
+              data.avatar.approvedAvatarUrl is string &&
+              data.profileImageUrl == data.avatar.approvedAvatarUrl &&
+              isSafePublicMediaUrl(data.profileImageUrl)
+            )) &&
+          (!data.keys().hasAny(['avatar']) ||
+            avatarPublicMediaOk(data.avatar)) &&
+          (!data.keys().hasAny(['onboarding']) ||
+            onboardingPublicMediaOk(data.onboarding, data));
+    }
+
+    function chatRoomParticipantIds(data) {
+      return data.participantIds is list ? data.participantIds : [];
+    }
+
+    // A moderation suspension must close every client-side chat write path,
+    // not only the server-mediated text-message callable. The users document
+    // is server-owned for these fields, so a suspended user cannot turn this
+    // gate back on from the app.
+    function hasActiveChatAccount() {
+      return isSignedIn() &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('loginDisabled', false) != true &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isActive', true) != false &&
+          !['banned', 'blocked', 'deleted', 'suspended', 'withdrawn']
+            .hasAny([get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', 'active')]);
+    }
+
+    function isChatRoomParticipant() {
+      // Keep the array membership expression direct. Firestore's query
+      // analyzer can prove a `where('participantIds', 'array-contains', uid)`
+      // query is safe with this form, but not when the field is wrapped in a
+      // helper/ternary expression.
+      return hasActiveChatAccount() && request.auth.uid in resource.data.participantIds;
+    }
+
+    function isChatRoomParticipantAfter() {
+      return hasActiveChatAccount() && request.auth.uid in chatRoomParticipantIds(request.resource.data);
+    }
+
+    function chatRoomParticipantIdsUnchanged() {
+      return request.resource.data.participantIds == resource.data.participantIds;
+    }
+
+    // Text chat is server-mediated so moderation and mutual block checks are
+    // authoritative. Existing history remains readable; only new contact in a
+    // one-to-one room is denied after either participant blocks the other.
+    function isOneToOneChatRoomData(data) {
+      return data != null && data.get('type', null) == 'one_to_one' &&
+        data.participantIds is list && data.participantIds.size() == 2;
+    }
+
+    function hasOneToOneChatBlock(data) {
+      return isOneToOneChatRoomData(data) && (
+        exists(/databases/$(database)/documents/blocks/$(data.participantIds[0])/targets/$(data.participantIds[1])) ||
+        exists(/databases/$(database)/documents/blocks/$(data.participantIds[1])/targets/$(data.participantIds[0]))
+      );
+    }
+
+    // Support rooms are server-created and use the normal participant model.
+    // A participant may update only the message-preview fields that the chat
+    // client writes; case references, staff assignment and room state remain
+    // server-authoritative.
+    function isSupportRoomData(data) {
+      return data != null && data.get('roomType', null) == 'support';
+    }
+
+    function supportRoomMutableOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'lastMessage',
+        'lastMessageAt',
+        'updatedAt',
+        'photoBlurUnlocked',
+        'photoBlurUnlockedAt',
+        'photoBlurUnlockedBy'
+      ]);
+    }
+
+    // The only client-originated support-room payload is a normal text reply.
+    // Case-delivery cards are written by the callable with the Admin SDK, so
+    // a member cannot forge a support_inquiry message or attach an unbounded
+    // data map to a staff conversation.
+    function isValidClientSupportMessage(roomId) {
+      return !isSupportRoomData(blindRoomData(roomId)) || (
+        request.resource.data.keys().hasOnly([
+          'senderId',
+          'text',
+          'type',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.senderId is string &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 1000 &&
+        request.resource.data.type == 'text'
+      );
+    }
+
+    function isExistingChatRoomParticipant(roomId) {
+      return hasActiveChatAccount() &&
+          request.auth.uid in chatRoomParticipantIds(
+            get(/databases/$(database)/documents/chat_rooms/$(roomId)).data
+          );
+    }
+
+    function isParticipantMessageAuthor(roomId) {
+      return isExistingChatRoomParticipant(roomId) &&
+          request.resource.data.senderId is string &&
+          request.resource.data.senderId == request.auth.uid;
+    }
+
+    // P0-2 (2026-10 audit): room-level unread state. The per-message
+    // `readBy` receipt model is RETIRED (pre-launch closure, 2026-10-25):
+    // clients neither create nor update that field, and a text message is
+    // never rewritten after creation. The server increments
+    // chat_rooms.unreadCounts.{uid} once per message a participant did not
+    // send; a participant may only (a) reset its OWN counter to 0 and (b)
+    // stamp its OWN lastReadAt with the server time, in one update that
+    // touches nothing else. Every other key of the model is server-owned.
+    function unreadModelServerKeys() {
+      return ['unreadCounts', 'lastReadAt', 'unreadModelVersion', 'unreadBackfilledAt',
+        'legacyReadBoundaryMigratedAt', 'legacyReadBoundaryMigrationVersion'];
+    }
+
+    function onlyOwnUnreadReadStateUpdate() {
+      let uid = request.auth.uid;
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.diff(before).affectedKeys().hasOnly(['unreadCounts', 'lastReadAt']) &&
+          after.get('unreadCounts', {}) is map &&
+          after.get('lastReadAt', {}) is map &&
+          after.get('unreadCounts', {}).diff(before.get('unreadCounts', {})).affectedKeys().hasOnly([uid]) &&
+          after.get('lastReadAt', {}).diff(before.get('lastReadAt', {})).affectedKeys().hasOnly([uid]) &&
+          after.unreadCounts[uid] == 0 &&
+          after.lastReadAt[uid] == request.time;
+    }
+
+    // Promise cards are updated in-place (request → confirmed / rejected /
+    // cancelled / edited). Free-form chat text must never enter this path, so
+    // the *existing* message must already be a promise_* type.
+    function isExistingPromiseMessage() {
+      return resource.data.keys().hasAny(['type']) &&
+          resource.data.type is string &&
+          resource.data.type.matches('promise_.*');
+    }
+
+    function onlyPromiseMessageLifecycleUpdate() {
+      return isExistingPromiseMessage() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'type',
+            'text',
+            'dateTime',
+            'place',
+            'placeCategory',
+            'placeId',
+            'placeAddress',
+            'placeLat',
+            'placeLng',
+            'placeThumbnailUrl',
+            'status',
+            'readBy',
+            'updatedAt',
+            'isEdited',
+            'editedAt'
+          ]) &&
+          // TRANSITIONAL (NEW-18): an old build rewrites readBy to its own uid
+          // when it edits a promise card; nothing else is tolerated.
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['readBy']) ||
+            request.resource.data.readBy == [request.auth.uid]) &&
+          request.resource.data.senderId == resource.data.senderId &&
+          request.resource.data.type is string &&
+          request.resource.data.type.matches('promise_.*');
+    }
+
+    // 약속 취소는 채팅방 참가자 전체가 아니라 해당 약속의 양 당사자만
+    // 수행할 수 있다. 요청자/수신자 모두 같은 취소 경로를 사용한다.
+    function isPromiseParty(data) {
+      return isSignedIn() &&
+          (
+            (
+              data.keys().hasAny(['requestedBy']) &&
+              data.requestedBy is string &&
+              data.requestedBy == request.auth.uid
+            ) ||
+            (
+              data.keys().hasAny(['requestedTo']) &&
+              data.requestedTo is string &&
+              data.requestedTo == request.auth.uid
+            )
+          );
+    }
+
+    function isPromiseCancellationUpdate() {
+      return request.resource.data.keys().hasAny(['status']) &&
+          request.resource.data.status == 'cancelled' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'cancelledAt',
+            'cancelledReason',
+            'updatedAt'
+          ]);
+    }
+
+    function canCreatePromiseDeletionMessage(roomId) {
+      return request.resource.data.keys().hasAll([
+            'type',
+            'promiseId',
+            'status'
+          ]) &&
+          request.resource.data.type == 'promise_deleted' &&
+          request.resource.data.promiseId is string &&
+          request.resource.data.status == 'cancelled' &&
+          exists(/databases/$(database)/documents/chat_rooms/$(roomId)/promises/$(request.resource.data.promiseId)) &&
+          isPromiseParty(
+            get(/databases/$(database)/documents/chat_rooms/$(roomId)/promises/$(request.resource.data.promiseId)).data
+          );
+    }
+
+    function canUpdatePromise(roomId) {
+      return isExistingChatRoomParticipant(roomId) &&
+          (!isPromiseCancellationUpdate() || isPromiseParty(resource.data)) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
+            blindRoomData(roomId).writable == true);
+    }
+
+    // TRANSITIONAL — retire with backlog NEW-18 once the readBy-free client is
+    // the published build. An installed OLD build (tester / Play reviewer)
+    // still sends `readBy: [own uid]` on the messages it creates and appends
+    // its own uid as a receipt when it opens a room. The unread model ignores
+    // the field entirely; these two helpers tolerate exactly those two legacy
+    // shapes and nothing else (no other field, no other uid, no replacement),
+    // so the old build keeps working without reopening message mutation.
+    function legacyReadByOnCreateTolerated() {
+      return !request.resource.data.keys().hasAny(['readBy']) ||
+          request.resource.data.readBy == [request.auth.uid];
+    }
+
+    function legacyOwnReceiptAppend() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.diff(before).affectedKeys().hasOnly(['readBy', 'updatedAt']) &&
+          after.readBy is list &&
+          after.readBy == before.get('readBy', []).concat([request.auth.uid]);
+    }
+
+    function canUpdateChatMessage(roomId) {
+      return isExistingChatRoomParticipant(roomId) &&
+          (legacyOwnReceiptAppend() || onlyPromiseMessageLifecycleUpdate());
+    }
+
+    // -----------------------------------------------------------------------
+    // 약속(promises) — 3:3 시즌 미팅 약속잡기와 안전도장의 원본 문서
+    //
+    // 이전에는 필드 검증이 하나도 없어서, 방 참가자 한 명이 단독으로
+    //   - 남의 uid 로 requestedBy 를 채워 약속을 만들고
+    //   - 자기가 보낸 요청을 자기가 수락하고
+    //   - safetyStamp 에 참가자 6명 uid 를 한 번에 박아 "만나지도 않은 만남"을
+    //     완료 처리(= 룰렛 게이트 통과)할 수 있었다.
+    // 안전도장은 사고 대응의 유일한 기록이므로 도장은 "내 uid 하나만 append"
+    // 로 못박고, 서버(Cloud Functions)만 쓰는 필드는 허용 목록에서 뺀다.
+    // -----------------------------------------------------------------------
+
+    function promiseRoomParticipantIds(roomId) {
+      return chatRoomParticipantIds(
+        get(/databases/$(database)/documents/chat_rooms/$(roomId)).data
+      );
+    }
+
+    // create 시 클라이언트가 쓸 수 있는 필드 (chat_service.dart:createPromise).
+    // exactReminderTaskToken / exactReminderScheduledForMs /
+    // oneHourReminderSentAt / completionMode / participantIds / safetyStamp 는
+    // 서버 소유이거나 라이프사이클 이후에만 생겨야 하므로 의도적으로 없다.
+    function promiseClientCreatableKeys() {
+      return [
+        'promiseId', 'messageId', 'requestedBy', 'requestedTo',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng',
+        'placeThumbnailUrl',
+        'status', 'createdAt', 'updatedAt',
+        'isEdited', 'editedAt', 'acceptedAt'
+      ];
+    }
+
+    // update 시 바뀔 수 있는 필드. promiseId / messageId / createdAt 이
+    // 빠져 있으므로 이 세 개는 목록만으로 불변이 된다.
+    //
+    // 안전도장 관련 필드(safetyStamp / participantIds / meetupCompletedAt /
+    // completedAt)는 여기에 없다. 도장은 submitSafetyStamp callable 이
+    // auth.uid 기준으로만 쓴다 (Admin SDK 는 규칙을 우회하므로 서버는 계속 쓸 수
+    // 있다). 클라이언트가 도장 배열이나 완료 시각을 직접 만지는 경로는 없다.
+    function promiseClientMutableKeys() {
+      return [
+        'requestedBy', 'requestedTo',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng',
+        'placeThumbnailUrl',
+        'status', 'acceptedAt', 'updatedAt',
+        'isEdited', 'editedAt',
+        'cancelledAt', 'cancelledReason'
+      ];
+    }
+
+    /** 약속의 당사자(제안자 또는 수신자)인가. */
+    function promiseIsParty() {
+      return request.auth.uid == resource.data.requestedBy ||
+          request.auth.uid == resource.data.requestedTo;
+    }
+
+    // 안전도장 관련 규칙 헬퍼는 제거했다.
+    // safetyStamp / participantIds / meetupCompletedAt / completedAt 은
+    // promiseClientMutableKeys() 에 없으므로 클라이언트가 아예 쓸 수 없고,
+    // 검증은 submitSafetyStamp callable 이 서버에서 수행한다.
+
+    function promiseAuthorPairUnchanged() {
+      return request.resource.data.requestedBy == resource.data.requestedBy &&
+          request.resource.data.requestedTo == resource.data.requestedTo;
+    }
+
+    // chat_service.dart:updatePromise 는 상대방이 약속을 고치면
+    // requestedBy/requestedTo 를 서로 뒤집는다(= 제안자가 바뀐다).
+    // 이 경로만 예외로 허용하되, 새 제안자는 반드시 수정하는 본인이어야 한다.
+    function promiseAuthorPairSwappedByEditor() {
+      return request.resource.data.requestedBy == request.auth.uid &&
+          request.resource.data.requestedBy == resource.data.requestedTo &&
+          request.resource.data.requestedTo == resource.data.requestedBy &&
+          request.resource.data.status == 'requested';
+    }
+
+    // 약속 상태 전이는 "누가" 하는지까지 규칙에서 강제한다.
+    //
+    // 이전에는 `status in ['rejected','cancelled','requested']` 한 줄이 방
+    // 참가자 누구에게나 열려 있어서, 6인 방에서 제3자가 남의 약속을 거절하거나
+    // 취소하거나 날짜·장소를 바꿔치기할 수 있었다.
+    //
+    // in_progress / completed 는 더 이상 여기 없다. 안전도장이 서버 권위로
+    // 바뀌면서 그 두 전이는 submitSafetyStamp 만 수행한다 (Admin SDK).
+    function promiseStatusTransitionOk(roomId) {
+      return (
+        // 상태를 바꾸지 않는 수정(날짜·장소 등)은 약속 당사자만.
+        // 이미 끝났거나 진행 중인 약속의 내용은 아무도 못 고친다.
+        // 안전도장이 기록된 뒤 "언제 어디서 만났는지"가 바뀌면
+        // 사고 대응 기록으로서의 의미가 사라진다.
+        (request.resource.data.status == resource.data.status &&
+          resource.data.status in ['requested', 'confirmed'] &&
+          promiseIsParty())
+      ) || (
+        // 수락: 받은 사람만, 아직 requested 일 때만.
+        request.resource.data.status == 'confirmed' &&
+        resource.data.status == 'requested' &&
+        promiseAuthorPairUnchanged() &&
+        request.auth.uid == resource.data.requestedTo
+      ) || (
+        // 거절: 받은 사람만, 아직 requested 일 때만.
+        // (수락과 대칭. 제3자도, 제안자 본인도 거절할 수 없다.)
+        request.resource.data.status == 'rejected' &&
+        resource.data.status == 'requested' &&
+        promiseAuthorPairUnchanged() &&
+        request.auth.uid == resource.data.requestedTo
+      ) || (
+        // 취소(삭제): 약속 당사자 누구나, 아직 끝나지 않은 약속만.
+        // (main 의 cancelPromise 제품 계약 — 제3자는 여전히 불가.)
+        request.resource.data.status == 'cancelled' &&
+        resource.data.status in ['requested', 'confirmed'] &&
+        promiseAuthorPairUnchanged() &&
+        promiseIsParty()
+      ) || (
+        // 도착 안전도장 시한이 지나 자동 취소되는 경로는 당사자 누구나
+        // 트리거할 수 있다 (chat_service.cancelExpiredIncompleteSafetyStamp).
+        request.resource.data.status == 'cancelled' &&
+        resource.data.status == 'confirmed' &&
+        request.resource.data.cancelledReason == 'safety_stamp_timeout' &&
+        promiseAuthorPairUnchanged() &&
+        promiseIsParty()
+      ) || (
+        // 재요청(수정). 상대가 고치면 제안자·수신자가 뒤집힌다.
+        // 종료된 약속(rejected/cancelled/completed)은 되살릴 수 없다.
+        request.resource.data.status == 'requested' &&
+        resource.data.status in ['requested', 'confirmed'] &&
+        (promiseAuthorPairSwappedByEditor() ||
+          (promiseAuthorPairUnchanged() &&
+            request.auth.uid == resource.data.requestedBy))
+      );
+    }
+
+    function isPromiseAuthorAtCreate(roomId) {
+      return request.resource.data.requestedBy is string &&
+          request.resource.data.requestedBy == request.auth.uid &&
+          request.resource.data.requestedTo is string &&
+          request.resource.data.requestedTo != request.auth.uid &&
+          request.resource.data.requestedTo in promiseRoomParticipantIds(roomId);
+    }
+
+    function isAskParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.fromUserId == request.auth.uid ||
+            data.toUserId == request.auth.uid
+          );
+    }
+
+    function isInteractionParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.fromUserId == request.auth.uid ||
+            data.toUserId == request.auth.uid
+          );
+    }
+
+    function isMatchParticipant(data) {
+      return isSignedIn() &&
+          data.userIds is list &&
+          request.auth.uid in data.userIds;
+    }
+
+    function matchStatusOnlyMovesToUnmatched() {
+      return resource.data.status == 'active' &&
+          request.resource.data.status == 'unmatched' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'unmatchedAt'
+          ]);
+    }
+
+    function isEventTeamSetupParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.leaderUserId == request.auth.uid ||
+            (
+              data.acceptedUserIds is list &&
+              request.auth.uid in data.acceptedUserIds
+            ) ||
+            (
+              data.pendingInviteeIds is list &&
+              request.auth.uid in data.pendingInviteeIds
+            )
+          );
+    }
+
+    function isEventTeamInviteParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.inviterUserId == request.auth.uid ||
+            data.inviteeUserId == request.auth.uid
+          );
+    }
+
+    function isEventTeamMatchParticipant(data) {
+      return isSignedIn() &&
+          data.participantUids is list &&
+          request.auth.uid in data.participantUids;
+    }
+
+    function chatRoomDoesNotPersistPrivateMedia(data) {
+      return !data.keys().hasAny([
+          'sourcePhotos',
+          'sourcePhotoUrls',
+          'sourcePhotoRefs',
+          'sourcePhotoIds',
+          'sourcePhotoGcsUri',
+          'sourcePhotoGcsUris',
+          'chatRealPhoto',
+          'chatRealPhotoUrl',
+          'realPhotoUrl',
+          'realProfilePhotoUrl',
+          'gcsUri',
+          'gcsUris',
+          'signedUrl',
+          'signedUrls',
+          'privatePhotoUrl',
+          'privatePhotoUrls',
+          'clipEmbedding',
+          'clipEmbeddings',
+          'vector',
+          'faceEmbedding',
+          'faceEmbeddings'
+        ]);
+    }
+
+    match /users/{kakaoUserId} {
+      // PRIVATE_OWNER_ONLY (+ Admin SDK). Cross-user reads must use
+      // publicProfiles/{uid}. Collection list stays denied.
+      allow get: if isSelf(kakaoUserId);
+      allow list: if false;
+
+      // Account creation is SERVER-OWNED (terms-gate-contract §8, F8).
+      // The email-verified create branch was REMOVED: it was gated only on a
+      // verified Yonsei email claim with NO doc-id<->uid binding, so any
+      // temporary email-link session could mint users/{ARBITRARY_ID} with
+      // isStudentVerified:true — a second account-creation path that bypasses
+      // completePrimaryStudentEmailAuth and the terms gate entirely.
+      // Both real flows create the document with the Admin SDK before any
+      // client write: createFirebaseCustomToken builds the legacy Kakao shell
+      // (and legacy sendStudentVerificationEmail refuses to send unless
+      // users/{uid}.kakaoUserId == uid already exists), and
+      // buildPrimaryAuthNewUserShell writes the new-flow shell. The email-link
+      // session only ever needs the UPDATE branch below.
+      allow create: if onboardingAvatarPhotoFieldsAbsent(request.resource.data) &&
+          (
+            (
+              // Kakao-bridged app session creating its own shell document.
+              // It may not assert student verification for itself.
+              isSelf(kakaoUserId) &&
+              doesNotSelfAssertStudentVerification(request.resource.data) &&
+              usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+              (!request.resource.data.keys().hasAny(['profileImageUrl']) ||
+                request.resource.data.profileImageUrl == null ||
+                request.resource.data.profileImageUrl == "") &&
+              request.resource.data.keys().hasOnly([
+                'kakaoUserId',
+                'nickname',
+                'profileImageUrl',
+                'email',
+                'createdAt',
+                'lastLoginAt',
+                'lastActivePlatform',
+                'lastActivePlatformUpdatedAt',
+                'onboarding',
+                'onboardingUpdatedAt',
+                'profileImageMode',
+                'initialSetupComplete',
+                'initialSetupCompletedAt',
+                'onboardingCompletedAt',
+                'idealType',
+                'idealTypeUpdatedAt',
+                'updatedAt',
+                'hasSeenTutorial',
+                'isStudentVerified',
+                'studentEmail',
+                'studentVerifiedAt',
+                'verifiedAt',
+                'legalConsents',
+                'privacySettings',
+                'privacySettingsUpdatedAt',
+                'notificationSettings',
+                'notificationSettingsUpdatedAt',
+                'preferenceVector'
+              ])
+            )
+          );
+
+
+      allow update: if onboardingAvatarPhotoFieldsUnchanged() &&
+        reviewAuthorityFieldsUnchanged() && (
+          (
+            // Student verification write, performed by the email-link session
+            // (public/index.html, or the in-app link handler). The mailbox must
+            // be Firebase-verified, must be the one being written, and must not
+            // already belong to someone else.
+            hasVerifiedYonseiEmail() &&
+            writesOwnStudentEmail(request.resource.data) &&
+            studentEmailIsUnboundOrMine(resource.data) &&
+            request.resource.data.isStudentVerified == true &&
+            // P0-1: the server-issued token must name THIS document and THIS
+            // mailbox; the identity field may not be repointed on the way.
+            emailLinkTokenBindsCallerTo(
+              kakaoUserId,
+              request.resource.data.get('studentEmailLinkToken', null)
+            ) &&
+            studentEmailBindingNamesTarget(kakaoUserId) &&
+            usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+            // affectedKeys (not changedKeys): newly added fields must also be
+            // constrained — changedKeys ignores keys that did not exist before.
+request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'kakaoUserId',
+              'isStudentVerified',
+              'studentEmail',
+              'studentEmailLinkToken',
+              'studentVerifiedAt',
+              'verifiedAt'
+            ])
+          ) || (
+            isUserDocOwner(kakaoUserId) &&
+            resource.data.isStudentVerified == true &&
+            request.resource.data.isStudentVerified == true &&
+            usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+            // Client-writable allowlist only. Moderation / withdrawal /
+            // verification timestamps / loginDisabled are server-only.
+            // Use affectedKeys so forging brand-new protected fields is denied.
+request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'kakaoUserId',
+              'nickname',
+              'email',
+              'lastActivePlatform',
+              'lastActivePlatformUpdatedAt',
+              'onboarding',
+              'onboardingUpdatedAt',
+              'profileImageMode',
+              'initialSetupComplete',
+              'initialSetupCompletedAt',
+              'onboardingCompletedAt',
+              'idealType',
+              'idealTypeUpdatedAt',
+              'legalConsents',
+              'privacySettings',
+              'privacySettingsUpdatedAt',
+              'notificationSettings',
+              'notificationSettingsUpdatedAt',
+              'preferenceVector',
+              'lastLoginAt',
+              'hasSeenTutorial',
+              'updatedAt'
+            ])
+          ) || (
+            // Profile edit (onboarding data update) - keep existing rules and allow onboarding edits
+            isUserDocOwner(kakaoUserId) &&
+            (request.resource.data.get('kakaoUserId', null) == null ||
+              request.resource.data.get('kakaoUserId', null) == kakaoUserId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'kakaoUserId',
+              'nickname',
+              'email',
+              'lastActivePlatform',
+              'lastActivePlatformUpdatedAt',
+              'onboarding',
+              'onboardingUpdatedAt',
+              'profileImageMode',
+              'idealType',
+              'idealTypeUpdatedAt',
+              'legalConsents',
+              'privacySettings',
+              'privacySettingsUpdatedAt',
+              'notificationSettings',
+              'notificationSettingsUpdatedAt',
+              'preferenceVector',
+              'lastLoginAt',
+              'hasSeenTutorial',
+              'initialSetupComplete',
+              'initialSetupCompletedAt',
+              'onboardingCompletedAt',
+
+              'updatedAt'
+            ])
+          )
+        );
+
+      // ---------------------------------------------------------------------
+      // Device tokens
+      // ---------------------------------------------------------------------
+      // 이전: get/list/delete 가 `if true`, create/update 에 request.auth 조건
+      // 없음. FCM 토큰이 전역 공개였고 남의 uid 아래에 자기 토큰을 등록할 수
+      // 있었다. shared/notify.ts 의 fetchUserTokens 는 이 문서 ID 를 그대로
+      // 수신자로 쓰기 때문에, 공격자가 피해자의 푸시(채팅 원문 포함)를
+      // 받아볼 수 있었고 남의 토큰을 지워 푸시를 막을 수도 있었다.
+      match /deviceTokens/{token} {
+        allow get, list: if isSelf(kakaoUserId);
+
+        allow create, update: if isSelf(kakaoUserId) &&
+          request.resource.data.userId is string &&
+          request.resource.data.userId == kakaoUserId &&
+          request.resource.data.token is string &&
+          request.resource.data.token == token;
+
+        allow delete: if isSelf(kakaoUserId);
+      }
+
+      // ---------------------------------------------------------------------
+      // In-app notifications
+      // users/{kakaoUserId}/notifications/{notificationId}
+      // ---------------------------------------------------------------------
+      // 이전: get/list/delete 가 `if true`, create 에 request.auth 조건 없음.
+      // 누구나 남의 알림함을 읽고 지울 수 있었고 임의 사용자에게 알림을
+      // 꽂아넣을 수 있었다(스팸·피싱 문구 삽입).
+      // 서버는 Admin SDK 로 쓰기 때문에 규칙을 우회하므로 영향이 없다.
+      match /notifications/{notificationId} {
+        allow get, list: if isSelf(kakaoUserId);
+
+        allow create: if false;
+
+        allow update: if isSelf(kakaoUserId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'isRead',
+            'readAt'
+          ]);
+
+        allow delete: if false;
+      }
+
+      // ---------------------------------------------------------------------
+      // Bamboo content this user reported (P0-3)
+      // users/{kakaoUserId}/bambooHiddenContent/{postId | postId__commentId}
+      // ---------------------------------------------------------------------
+      // reportBambooContent writes it so the reporter no longer sees that
+      // post/comment. It holds content ids only — never the author.
+      match /bambooHiddenContent/{key} {
+        allow get, list: if isSelf(kakaoUserId);
+        allow create, update, delete: if false;
+      }
+
+      // ---------------------------------------------------------------------
+      // Friends mirror
+      // users/{kakaoUserId}/friends/{friendUid}
+      // ---------------------------------------------------------------------
+      match /friends/{friendUid} {
+        allow get, list: if isVerifiedOwner(kakaoUserId);
+        allow create, update, delete: if false;
+      }
+
+      // ---------------------------------------------------------------------
+      // Contact blocked hashes (contact blocking - writes only through server-side callable)
+      // users/{kakaoUserId}/contactBlockedHashes/{phoneHash}
+      // ---------------------------------------------------------------------
+      match /contactBlockedHashes/{phoneHash} {
+        allow get, list: if request.auth != null &&
+          request.auth.uid == kakaoUserId;
+        allow create, update, delete: if false;
+      }
+
+      // 추천 새로고침 이용권. 하트를 결제하고 받은 영수증에 해당하므로
+      // 본인은 반드시 읽을 수 있어야 한다 (읽지 못하면 앱을 껐다 켤 때마다
+      // 결제한 4~6위 노출 구간이 조용히 사라진다).
+      // 발급은 서버(recommendationRefresh.ts)만 한다.
+      match /recommendationRefreshes/{dateKey} {
+        allow get: if isSelf(kakaoUserId);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Backend-only private media and embeddings
+    // -----------------------------------------------------------------------
+    match /userPrivateMedia/{userId} {
+      allow read, write: if false;
+    }
+
+    match /clipEmbeddings/{userId} {
+      allow read, write: if false;
+    }
+
+    match /avatarJobs/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /avatarCandidates/{candidateId} {
+      allow read, write: if false;
+    }
+
+    // Azure endpoint pacing/reservations. Contains only opaque endpoint ids,
+    // quota and timestamps; clients still have no read or write access.
+    match /avatarProviderRouterState/{stateId} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Server-owned identity indexes (auth re-architecture, identity-contract §3)
+    // -----------------------------------------------------------------------
+    match /studentEmailBindings/{emailHash} {
+      allow read, write: if false;
+    }
+
+    match /kakaoIdentities/{kakaoIdentityHash} {
+      allow read, write: if false;
+    }
+
+    // Server-owned Kakao friend pair materialization (one-time snapshot,
+    // kakao-friend-pairs-contract §2). Social-graph-sensitive: never
+    // client-readable, even for a pair's own members.
+    match /kakaoFriendPairs/{pairId} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Friend invites / friendships
+    // -----------------------------------------------------------------------
+    match /friendInvites/{inviteId} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /friendships/{pairId} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // RecEvents (recommendation training event log: open, like, nope, etc.)
+    // Clients may append their own events, but must not rewrite history —
+    // forged updates would let someone manufacture mutual likes after the fact.
+    // -----------------------------------------------------------------------
+    function isAllowedRecEventType(eventType) {
+      return eventType in [
+        'impression',
+        'open',
+        'detail_open',
+        'view',
+        'like',
+        'nope',
+        'super_like',
+        'swipe_right',
+        'block',
+        'report'
+      ];
+    }
+
+    function isValidRecEventCreate(userId) {
+      return request.resource.data.userId is string &&
+          request.resource.data.userId == userId &&
+          request.resource.data.type is string &&
+          isAllowedRecEventType(request.resource.data.type) &&
+          request.resource.data.eventType is string &&
+          request.resource.data.eventType == request.resource.data.type &&
+          request.resource.data.targetUserId is string &&
+          request.resource.data.targetUserId.size() > 0 &&
+          request.resource.data.targetUserId != userId &&
+          request.resource.data.keys().hasOnly([
+            'userId',
+            'targetType',
+            'targetId',
+            'targetUserId',
+            'candidateUserId',
+            'type',
+            'eventType',
+            'surface',
+            'source',
+            'cardVariant',
+            'eventTime',
+            'createdAt',
+            'exposureId',
+            'sessionId',
+            'dateKey',
+            'context',
+            'schemaVersion'
+          ]) &&
+          (
+            !('schemaVersion' in request.resource.data) ||
+            (
+              request.resource.data.schemaVersion is int &&
+              request.resource.data.schemaVersion == 1
+            )
+          );
+    }
+
+    match /recEvents/{userId} {
+      allow read: if isSelf(userId) && !isPlayReviewSession();
+      allow create, update: if isSelf(userId) && !isPlayReviewSession();
+      allow delete: if false;
+
+      match /events/{eventId} {
+        allow read: if isSelf(userId) && !isPlayReviewSession();
+        allow create: if isSelf(userId) && !isPlayReviewSession() &&
+          isValidRecEventCreate(userId);
+        allow update, delete: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Chat
+    //
+    // 블라인드 취향 미팅 채팅방(roomType이 blind_meeting_*)은 서버가 멤버십과
+    // 읽기 전용 여부를 관리하므로 클라이언트 쓰기를 별도로 제한한다.
+    // -----------------------------------------------------------------------
+    function blindMeetingRoomTypes() {
+      return ['blind_meeting_group', 'blind_meeting_direct'];
+    }
+
+    function isBlindMeetingRoomData(data) {
+      return data != null &&
+          data.get('roomType', null) in blindMeetingRoomTypes();
+    }
+
+    function seasonMeetingRoomTypes() {
+      return ['season_meeting_group', 'event_season_meeting_group', 'three_vs_three_group'];
+    }
+
+    function seasonMeetingRoomGroupKinds() {
+      return ['group', 'three_vs_three', 'event_team_group'];
+    }
+
+    function isSeasonMeetingRoomData(data) {
+      return data != null && (
+          data.get('roomType', null) in seasonMeetingRoomTypes() ||
+          (
+            data.get('eventType', null) == 'season_meeting' &&
+            data.get('type', null) in seasonMeetingRoomGroupKinds()
+          ) ||
+          (
+            data.get('type', null) in seasonMeetingRoomGroupKinds() &&
+            (
+              data.get('threeVsThreeMatchId', null) is string ||
+              data.get('seasonMeetingMatchId', null) is string ||
+              data.get('eventThreeVsThreeMatchId', null) is string
+            )
+          )
+        );
+    }
+
+    // 클라이언트가 만드는 방은 미팅/매치 연결 필드를 가질 수 없다.
+    // roomType/type 분류를 우회한 위조(예: type:'direct' + threeVsThreeMatchId,
+    // 임의 meetingId 부착)를 create 시점에 차단한다. 시즌/블라인드 방은
+    // 서버(Admin SDK)만 생성하므로 규칙의 영향을 받지 않는다.
+    function chatRoomCreateHasNoMeetingLinkage(data) {
+      return !data.keys().hasAny([
+        'meetingId',
+        'matchId',
+        'threeVsThreeMatchId',
+        'seasonMeetingMatchId',
+        'eventThreeVsThreeMatchId',
+        'eventType'
+      ]);
+    }
+
+    // 방 문서의 activePromise 는 UI 표시용 미러다. 클라이언트가 여기에
+    // safetyStamp 를 실어 보내면 화면상 도장 상태를 위조할 수 있고, 예전
+    // 클라이언트는 이 미러를 도장 계산의 기준으로 삼기까지 했다.
+    // 도장 미러는 submitSafetyStamp 만 쓴다 (Admin SDK 는 규칙을 우회한다).
+    // update 의 request.resource.data 는 "패치"가 아니라 "병합된 최종 문서"다.
+    // 따라서 activePromise 안에 safetyStamp 가 있는지만 보면, 서버가 도장을 한 번
+    // 기록한 뒤로는 그 방의 모든 클라이언트 write(일반 메시지 전송 포함)가 막힌다.
+    // 클라이언트가 도장 미러를 "바꿨는지"만 본다.
+    function chatRoomActivePromiseHasNoStamp() {
+      return !request.resource.data.diff(resource.data)
+            .affectedKeys().hasAny(['activePromise']) ||
+          // 미러 삭제는 허용한다. 약속 수정·삭제·도착도장 시한초과 취소가
+          // 모두 activePromise 를 FieldValue.delete() 한다
+          // (chat_service.dart updatePromise / deletePromise /
+          //  cancelExpiredIncompleteSafetyStamp).
+          !request.resource.data.keys().hasAny(['activePromise']) ||
+          (
+            // map 이 아닌 값을 허용하면 그 방의 이후 activePromise 규칙 평가가
+            // 전부 에러가 되어 안전도장 경로가 영구히 잠긴다. 참가자 한 명이
+            // 나머지 다섯 명을 막을 수 있으므로 반드시 map 이어야 한다.
+            request.resource.data.activePromise is map &&
+            request.resource.data.activePromise.get('safetyStamp', null) ==
+              resource.data.get('activePromise', {}).get('safetyStamp', null)
+          );
+    }
+
+    function seasonMeetingRoomMutableOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'lastMessage',
+        'lastMessageAt',
+        'updatedAt',
+        'activePromise',
+        'photoBlurUnlocked',
+        'photoBlurUnlockedAt',
+        'photoBlurUnlockedBy'
+      ]);
+    }
+
+    function blindRoomData(roomId) {
+      return get(/databases/$(database)/documents/chat_rooms/$(roomId)).data;
+    }
+
+    function isRoomParticipant(roomId) {
+      return request.auth != null &&
+          request.auth.uid in blindRoomData(roomId).participantIds;
+    }
+
+    // 이전: chat_rooms 와 messages 모두 `allow read: if true` 였다. 인증 없이
+    // 전체 사용자의 채팅 원문을 읽을 수 있었다. 또 블라인드 미팅이 아닌 방은
+    // create/update 에 조건이 사실상 없어서 누구나 방을 만들고 남의 이름으로
+    // 메시지를 넣을 수 있었다.
+    //
+    // 참가자 모델: chat_rooms 문서의 participantIds 배열.
+    // 목록 조회는 where('participantIds' arrayContains uid) 로 하므로
+    // 문서 단위 규칙과 맞는다 (chat_service.dart:61 / :69).
+    //
+    // 블라인드 미팅 방의 기존 조건은 그대로 유지한다. 아래 변경은 모든
+    // roomType 에 참가자 게이트를 추가하는 것이고, 블라인드 전용 추가 조건은
+    // 손대지 않았다. 회귀는 blind_meeting_rules.test.js 로 확인해야 한다.
+    match /chat_rooms/{roomId} {
+      allow read: if isChatRoomParticipant();
+      // 1:1 방은 unlockDirectChat callable이 하트 차감과 함께 생성한다.
+      // 시즌/블라인드 미팅 방도 각 서버 트랜잭션의 소유다.
+      allow create: if false;
+      // P0-2: marking a room read is ONE room-level write of the caller's own
+      // unread keys. It stands apart from the general branch on purpose: a
+      // blocked or read-only room still lets its participant dismiss what
+      // they already received, and nothing else may change in that write.
+      allow update: if isChatRoomParticipant() && onlyOwnUnreadReadStateUpdate();
+      // participantIds is immutable after create — changing it would let a
+      // participant add a third party who can then read the full history.
+      allow update: if isChatRoomParticipant() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(unreadModelServerKeys()) &&
+        !hasOneToOneChatBlock(resource.data) &&
+        isChatRoomParticipantAfter() &&
+        chatRoomParticipantIdsUnchanged() &&
+        chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
+        chatRoomActivePromiseHasNoStamp() &&
+        (!isSupportRoomData(resource.data) || supportRoomMutableOnly()) &&
+        (!isBlindMeetingRoomData(resource.data) || (
+          resource.data.writable == true &&
+          request.resource.data.roomType == resource.data.roomType &&
+          request.resource.data.writable == resource.data.writable &&
+          request.resource.data.status == resource.data.status &&
+          request.resource.data.meetingId == resource.data.meetingId
+        )) &&
+        ((!isSeasonMeetingRoomData(resource.data) &&
+          !isSeasonMeetingRoomData(request.resource.data)) ||
+          (isSeasonMeetingRoomData(resource.data) &&
+            isSeasonMeetingRoomData(request.resource.data) &&
+            seasonMeetingRoomMutableOnly()));
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isExistingChatRoomParticipant(roomId);
+        allow create: if isParticipantMessageAuthor(roomId) &&
+          !hasOneToOneChatBlock(blindRoomData(roomId)) &&
+          request.resource.data.type != 'text' &&
+          // P0-2: the accounting marker is written only by the server. The
+          // retired receipt field is tolerated only as `[own uid]` from an
+          // installed old build (transitional, NEW-18) and is ignored.
+          !request.resource.data.keys().hasAny(['unreadAccountedAt', 'unreadBackfilled']) &&
+          legacyReadByOnCreateTolerated() &&
+          isValidClientSupportMessage(roomId) &&
+          (
+            !request.resource.data.keys().hasAny(['type']) ||
+            request.resource.data.type != 'promise_deleted' ||
+            canCreatePromiseDeletionMessage(roomId)
+          ) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) || (
+            blindRoomData(roomId).writable == true &&
+            request.resource.data.text is string &&
+            request.resource.data.text.size() > 0 &&
+            request.resource.data.text.size() <= 1000
+          ));
+        allow update: if canUpdateChatMessage(roomId) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) || (
+            request.resource.data.senderId == resource.data.senderId &&
+            request.resource.data.text == resource.data.text
+          ));
+        allow delete: if false;
+      }
+
+      // 필드 검증은 위 promise* 헬퍼에 모여 있다.
+      match /promises/{promiseId} {
+        allow read: if isExistingChatRoomParticipant(roomId);
+        allow create: if isExistingChatRoomParticipant(roomId) &&
+          !hasOneToOneChatBlock(blindRoomData(roomId)) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
+            blindRoomData(roomId).writable == true) &&
+          request.resource.data.keys().hasOnly(promiseClientCreatableKeys()) &&
+          request.resource.data.keys().hasAll([
+            'promiseId', 'messageId', 'requestedBy', 'requestedTo', 'status'
+          ]) &&
+          request.resource.data.promiseId == promiseId &&
+          isPromiseAuthorAtCreate(roomId) &&
+          request.resource.data.status == 'requested';
+        allow update: if isExistingChatRoomParticipant(roomId) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
+            blindRoomData(roomId).writable == true) &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(promiseClientMutableKeys()) &&
+          (promiseAuthorPairUnchanged() || promiseAuthorPairSwappedByEditor()) &&
+          promiseStatusTransitionOk(roomId);
+        allow delete: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // 3:3 블라인드 취향 미팅
+    //
+    //  - 비공개 미팅 DNA는 본인만 읽을 수 있고 클라이언트 쓰기는 전면 금지
+    //  - 미팅 상태·팀 배열·결제·참석 상태는 서버(Cloud Functions)만 변경
+    //  - 내부 매칭 점수는 클라이언트에서 읽을 수 없음
+    //  - 후속 선택은 본인 문서만 읽기 가능, 상호 선택 판정은 서버 전용
+    // -----------------------------------------------------------------------
+    function isBlindOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function blindMeetingData(meetingId) {
+      return get(/databases/$(database)/documents/blindMeetings/$(meetingId)).data;
+    }
+
+    function isBlindMeetingParticipant(meetingId) {
+      return request.auth != null &&
+          request.auth.uid in blindMeetingData(meetingId).participantIds;
+    }
+
+    function canReadBlindMeetingParty(data) {
+      return request.auth != null &&
+          request.auth.uid in data.acceptedUserIds;
+    }
+
+    function canReadBlindMeetingPartyInvite(data) {
+      return request.auth != null &&
+          (request.auth.uid == data.inviterUserId ||
+           request.auth.uid == data.inviteeUserId);
+    }
+
+    // 친구 파티의 roster와 진행률은 수락한 멤버만 읽는다. 생성·초대·잠금·
+    // 취소와 보수적 취향 집계는 모두 callable 트랜잭션만 수행한다.
+    match /blindMeetingParties/{partyId} {
+      // 단건 조회에서는 서버 문서의 배열 타입까지 확인한다. 목록 조회에서는
+      // 앱의 acceptedUserIds array-contains UID 조건을 Rules 엔진이 증명할 수
+      // 있도록 멤버십 조건만 사용한다. 무필터·타인 UID 쿼리는 계속 거부된다.
+      allow get: if resource.data.acceptedUserIds is list &&
+          canReadBlindMeetingParty(resource.data);
+      allow list: if canReadBlindMeetingParty(resource.data);
+      allow create, update, delete: if false;
+    }
+
+    // 초대 당사자만 초대장을 읽는다. 수락/거절도 callable에서 친구 관계와
+    // 성별, 중복 파티 가입을 다시 검증한 뒤 처리한다.
+    match /blindMeetingPartyInvites/{inviteId} {
+      allow get, list: if canReadBlindMeetingPartyInvite(resource.data);
+      allow create, update, delete: if false;
+    }
+
+    // 단일 활성 파티 membership lock과 집계된 매칭 조건은 서버 내부 자료다.
+    match /blindMeetingPartyMemberships/{userId} {
+      allow read, write: if false;
+    }
+
+    match /blindMeetingPartyMatching/{partyId} {
+      allow read, write: if false;
+    }
+
+    // 비공개 미팅 DNA: 본인 읽기만, 쓰기는 callable(submitBlindMeetingApplication)만
+    match /blindMeetingDna/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // 30H를 차감했지만 아직 최종 신청하지 않은 DNA 작성 진행 상태.
+    // 답변·결제 상태는 callable만 쓰고, 본인 화면에서만 읽는다.
+    match /blindMeetingDnaDrafts/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // 신청 상태: 본인 읽기만
+    match /blindMeetingApplications/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /blindMeetings/{meetingId} {
+      // 자신이 참가한 미팅만 조회 가능
+      allow get, list: if request.auth != null &&
+          request.auth.uid in resource.data.participantIds;
+      allow create, update, delete: if false;
+
+      // 참가자 상태: 본인 문서만 읽기, 쓰기는 서버만
+      match /participants/{userId} {
+        allow get: if isBlindOwner(userId) ||
+            isBlindMeetingParticipant(meetingId);
+        allow list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+
+      // 공개 프로필 스냅샷 (얼굴 사진·비공개 DNA 없음)
+      match /publicProfiles/{userId} {
+        allow get, list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+
+      // 내부 매칭 점수: 서버 전용
+      match /matchingResult/{docId} {
+        allow read, write: if false;
+      }
+
+      // 후속 선택: 자신의 선택만 읽기, 쓰기는 callable만
+      match /followUpChoices/{chooserUid} {
+        allow get: if isBlindOwner(chooserUid);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+
+      // 상호 선택 결과: callable(getBlindMeetingMutualMatches)로만 조회
+      match /mutualMatches/{pairId} {
+        allow read, write: if false;
+      }
+
+      match /feedback/{userId} {
+        allow get: if isBlindOwner(userId);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+
+      match /scheduleVotes/{userId} {
+        allow get, list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+
+      match /fivePersonVotes/{userId} {
+        allow get, list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // 대체 참가 제안: 제안받은 본인만 조회
+    match /blindMeetingReplacementOffers/{offerId} {
+      allow get: if request.auth != null &&
+          request.auth.uid == resource.data.candidateUid;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // 참여 제한 / 통계: 본인 읽기만
+    match /blindMeetingRestrictions/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /blindMeetingStats/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+
+      match /noShows/{meetingId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /blindMeetingHistory/{userId} {
+      allow read, write: if false;
+      match /metUsers/{otherUid} {
+        allow read, write: if false;
+      }
+    }
+
+    // 안전 flag, 운영 검토, 알림 발송 로그: 서버 전용
+    //
+    // blindMeetingDeposits 는 과거 결제 원장이다. 블라인드 미팅에는 더 이상
+    // 보증금이 없어 서버도 읽지도 쓰지도 않는다 (DEPRECATED_UNUSED). 기존
+    // 문서가 새로 노출되지 않도록 클라이언트 접근은 계속 전면 거부한다.
+    match /blindMeetingDeposits/{depositId} {
+      allow read, write: if false;
+    }
+
+    match /blindMeetingSafetyFlags/{meetingId} {
+      allow read, write: if false;
+    }
+
+    match /blindMeetingOpsReviews/{reviewId} {
+      allow read, write: if false;
+    }
+
+    match /notificationDispatchLog/{dispatchKey} {
+      allow read, write: if false;
+    }
+
+    // 운영 설정(약속잡기 기한 등)은 읽기 전용으로 공개
+    match /blindMeetingConfig/{docId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // 추천 정책의 rollout activation 상태. 서버(Admin SDK)만 쓴다.
+    // 클라이언트는 생활권 prerequisite 를 안내로 보여줄지 차단으로 보여줄지
+    // 판단하기 위해 읽기만 한다. 클라이언트가 activation 을 바꿀 수 없다.
+    match /recommendationConfig/{docId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Analytics: 개인정보 없는 이벤트만 append. 조회는 서버/운영 전용.
+    match /blindMeetingAnalytics/{eventId} {
+      allow create: if
+          request.resource.data.event is string &&
+          request.resource.data.event.size() > 0 &&
+          request.resource.data.event.matches('^blind_meeting_[a-z0-9_]+$') &&
+          request.resource.data.params is map &&
+          !('nickname' in request.resource.data.params) &&
+          !('interests' in request.resource.data.params) &&
+          !('userId' in request.resource.data.params) &&
+          !('studentEmail' in request.resource.data.params);
+      allow read, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // 3:3 미팅 아이스브레이킹 룰렛 (시즌 미팅 / 블라인드 취향 미팅 전용)
+    //
+    //  - 15분 반복 알림 상태는 서버(Cloud Functions)만 만들고 바꾼다
+    //  - 참가자는 자신의 문서만 읽는다 (다른 참가자의 알림 설정은 비공개)
+    //  - "이번 미팅 알림 끄기"는 callable(meetingIcebreakerAction)만 처리한다
+    // -----------------------------------------------------------------------
+    match /meetingIcebreakerSessions/{sessionId} {
+      // 세션 메타(원본 미팅 참조)는 클라이언트가 직접 읽지 않는다.
+      allow read: if false;
+      allow create, update, delete: if false;
+
+      match /promptParticipants/{userId} {
+        allow get: if request.auth != null && request.auth.uid == userId;
+        allow list: if false;
+        // isActive / nextPromptAt / promptSequence / stopReason 는 서버 전용
+        allow create, update, delete: if false;
+      }
+    }
+
+    // 앱 호환성 정책(최소 지원 빌드, 스토어 주소)은 읽기 전용으로 공개한다.
+    // 로그인 전에도 읽어야 한다 — 앱을 켜자마자 판정해야 하고, 그 시점에는
+    // 세션이 아직 없다. 담기는 값은 전부 공개 정보이며 비밀을 넣지 않는다.
+    //
+    // 이 문서는 UX 정책이지 보안 경계가 아니다. 수정된 클라이언트는 무시할 수
+    // 있고 그래도 괜찮다 — legacy write 차단은 이 파일의 다른 규칙이 한다.
+    // 문서 id 는 flavor(production/staging)다. 같은 프로젝트를 쓰는 두 flavor 를
+    // 문서로 갈라놔야 production 최소 빌드가 개발자 staging 빌드를 잠그지 않는다.
+    match /appCompatibilityConfig/{flavor} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // 운영 설정(알림 주기, 최대 지속 시간, feature flag)은 읽기 전용으로 공개
+    match /meetingIcebreakerConfig/{docId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Analytics: 개인정보와 폭탄 숨겨진 시간이 없는 이벤트만 append.
+    match /meetingIcebreakerAnalytics/{eventId} {
+      allow create: if
+          request.resource.data.event is string &&
+          request.resource.data.event.size() > 0 &&
+          request.resource.data.event.matches('^(meeting_icebreaker|meeting_roulette|meeting_game|bomb_timer)_[a-z0-9_]+$') &&
+          request.resource.data.params is map &&
+          !('nickname' in request.resource.data.params) &&
+          !('userId' in request.resource.data.params) &&
+          !('participantIds' in request.resource.data.params) &&
+          !('place' in request.resource.data.params) &&
+          !('hiddenSeconds' in request.resource.data.params) &&
+          !('bombSeconds' in request.resource.data.params) &&
+          !('fcmToken' in request.resource.data.params);
+      allow read, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Promise place catalog
+    // -----------------------------------------------------------------------
+    match /place_catalog_meta/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /place_catalog_items/{placeId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Bamboo Forest (Community) — P0-3 anonymous boundary
+    // -----------------------------------------------------------------------
+    // public 글/댓글은 로그인 사용자 누구나 읽는다. 규칙은 read 응답의 필드를
+    // 가릴 수 없으므로 이 문서들에는 작성자를 가리키는 값이 아예 없다 (서버
+    // writer 가 쓰지 않고, 클라이언트는 아래 counter 필드 외에는 바꿀 수 없다).
+    // 소유자는 비공개 매핑(bamboo_post_authors / bamboo_comment_authors) 에만
+    // 있고, 생성·삭제·신고처럼 소유자를 알아야 하는 쓰기는 전부 서버 callable
+    // (createCommunityPost/Comment, deleteCommunityPost/Comment,
+    // reportBambooContent) 이 매핑으로 판정한다.
+    //
+    // 클라이언트가 직접 쓸 수 있는 것은 자기 좋아요 문서와, 그것과 같은 커밋에서
+    // 움직이는 likeCount(±1)·score7d 뿐이다. commentCount·isDeleted·본문은
+    // 클라이언트가 바꿀 수 없다 (이전에는 누구나 commentCount 와 score7d 를 ±1 씩
+    // 반복해 인기 순위를 조작할 수 있었고, 운영 컬렉션의 댓글 likeCount 는 좋아요
+    // 문서와 묶여 있지 않았다).
+    //
+    // 좋아요 문서 id 는 누른 사람의 uid 다. 그래서 본인만 get 할 수 있고 list 는
+    // 막는다. 남의 uid 를 알고 있어도 그 사람이 좋아요를 눌렀는지 시험할 수
+    // 없다 — 거부 응답은 문서 존재 여부와 무관하다.
+    match /bamboo_posts/{postId} {
+      allow get: if isSignedIn() && !isPlayReviewSession() &&
+        noPublicBambooIdentity();
+      allow list: if false;
+      allow create, delete: if false;
+
+      allow update: if
+        isSignedIn() && !isPlayReviewSession() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'likeCount', 'score7d', 'updatedAt'
+        ]) &&
+        bambooFieldChanged('likeCount') &&
+        bambooPostCounterUpdateOk() &&
+        bambooLikeCountBound(postId) &&
+        bambooScore7dMovesWithCounters();
+
+      match /likes/{userId} {
+        allow get: if isSelf(userId) && !isPlayReviewSession();
+        allow list: if false;
+
+        allow create: if
+          isSelf(userId) && !isPlayReviewSession() &&
+          request.resource.data.keys().hasOnly(['userId', 'createdAt']) &&
+          request.resource.data.userId == request.auth.uid &&
+          likeParentMoves(prodBambooPostPath(postId), 1);
+
+        allow delete: if isSelf(userId) && !isPlayReviewSession() &&
+          likeParentMoves(prodBambooPostPath(postId), -1);
+        allow update: if false;
+      }
+
+      match /comments/{commentId} {
+        allow get: if isSignedIn() && !isPlayReviewSession() &&
+          noPublicBambooIdentity();
+        allow list: if false;
+        allow create, delete: if false;
+
+        allow update: if
+          isSignedIn() && !isPlayReviewSession() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'likeCount', 'updatedAt'
+          ]) &&
+          bambooFieldChanged('likeCount') &&
+          bambooCommentCounterUpdateOk() &&
+          bambooCommentLikeCountBound(postId, commentId);
+
+        match /likes/{userId} {
+          allow get: if isSelf(userId) && !isPlayReviewSession();
+          allow list: if false;
+
+          allow create: if
+            isSelf(userId) && !isPlayReviewSession() &&
+            request.resource.data.keys().hasOnly(['userId', 'createdAt']) &&
+            request.resource.data.userId == request.auth.uid &&
+            likeParentMoves(prodBambooCommentPath(postId, commentId), 1);
+
+          allow delete: if isSelf(userId) && !isPlayReviewSession() &&
+            likeParentMoves(prodBambooCommentPath(postId, commentId), -1);
+          allow update: if false;
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Bamboo private ownership mapping — the only ownership authority
+    // -----------------------------------------------------------------------
+    // 자기 매핑만 읽는다 ("내가 쓴 글", 내 댓글 표시). where(ownerUid == 본인)
+    // 이 없는 쿼리와 남의 매핑 get 은 거부된다 — 매핑이 없을 때도 같은 거부다.
+    // 매핑은 글/댓글과 같은 커밋에서 서버만 만든다. 클라이언트 create 경로가
+    // 남아 있으면 남의 글에 자기 소유권을 붙이는 시도가 가능해지므로 막는다.
+    // 정리는 계정삭제 서버 경로(Admin SDK)가 한다.
+    match /bamboo_post_authors/{postId} {
+      allow get, list: if
+        isSignedIn() && !isPlayReviewSession() &&
+        resource.data.ownerUid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /bamboo_comment_authors/{mappingId} {
+      allow get, list: if
+        isSignedIn() && !isPlayReviewSession() &&
+        resource.data.ownerUid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    // P0-3 Phase 0A: historical posts/comments whose author could not be
+    // proven (e.g. the 2026-05-19 bulk import) keep no owner; the legacy
+    // claim is kept here for operators only. No client access of any kind.
+    match /bamboo_ownership_unresolved/{recordId} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Google Play review Bamboo Forest
+    // -----------------------------------------------------------------------
+    // Review community content has its own root collection. This is a strict
+    // data-plane boundary: Play Review sessions are denied from bamboo_posts
+    // above, while ordinary app sessions are denied from every path below.
+    // The same anonymity contract applies: no author field, owner only in the
+    // review mappings, likes readable only by the liker.
+    match /playReviewBambooPosts/{postId} {
+      allow get: if isPlayReviewSession() &&
+        noPublicBambooIdentity();
+      allow list: if false;
+      allow create, delete: if false;
+
+      allow update: if
+        isPlayReviewSession() &&
+        resource.data.dataPartition == 'play_review' &&
+        request.resource.data.dataPartition == 'play_review' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'likeCount', 'score7d', 'updatedAt'
+        ]) &&
+        bambooFieldChanged('likeCount') &&
+        bambooPostCounterUpdateOk() &&
+        reviewBambooLikeCountBound(postId) &&
+        bambooScore7dMovesWithCounters();
+
+      match /likes/{userId} {
+        allow get: if isPlayReviewSession() && isSelf(userId);
+        allow list: if false;
+        allow create: if
+          isPlayReviewSession() && isSelf(userId) &&
+          request.resource.data.keys().hasOnly([
+            'userId', 'createdAt', 'dataPartition'
+          ]) &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.createdAt is timestamp &&
+          request.resource.data.dataPartition == 'play_review' &&
+          likeParentMoves(reviewBambooPostPath(postId), 1);
+        allow delete: if isPlayReviewSession() && isSelf(userId) &&
+          likeParentMoves(reviewBambooPostPath(postId), -1);
+        allow update: if false;
+      }
+
+      match /comments/{commentId} {
+        allow get: if isPlayReviewSession() &&
+          noPublicBambooIdentity();
+        allow list: if false;
+        allow create, delete: if false;
+
+        allow update: if
+          isPlayReviewSession() &&
+          resource.data.dataPartition == 'play_review' &&
+          request.resource.data.dataPartition == 'play_review' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'likeCount', 'updatedAt'
+          ]) &&
+          bambooFieldChanged('likeCount') &&
+          bambooCommentCounterUpdateOk() &&
+          reviewBambooCommentLikeCountBound(postId, commentId);
+
+        match /likes/{userId} {
+          allow get: if isPlayReviewSession() && isSelf(userId);
+          allow list: if false;
+          allow create: if
+            isPlayReviewSession() && isSelf(userId) &&
+            request.resource.data.keys().hasOnly([
+              'userId', 'createdAt', 'dataPartition'
+            ]) &&
+            request.resource.data.userId == request.auth.uid &&
+            request.resource.data.createdAt is timestamp &&
+            request.resource.data.dataPartition == 'play_review' &&
+            likeParentMoves(reviewBambooCommentPath(postId, commentId), 1);
+          allow delete: if isPlayReviewSession() && isSelf(userId) &&
+            likeParentMoves(reviewBambooCommentPath(postId, commentId), -1);
+          allow update: if false;
+        }
+      }
+    }
+
+    match /playReviewBambooPostAuthors/{postId} {
+      allow get, list: if
+        isPlayReviewSession() && resource.data.ownerUid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /playReviewBambooCommentAuthors/{mappingId} {
+      allow get, list: if
+        isPlayReviewSession() && resource.data.ownerUid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Recommendation exclusions
+    // -----------------------------------------------------------------------
+    // Assumed server-owned model:
+    // recommendationExclusions/{viewerUid}/targets/{targetUid}
+    // - pairId: string
+    // - userIds: list<string> (the two participants)
+    // - source: "kakao_talk_friend"
+    // - reason: "kakao_friend_avoidance"
+    // - enabledBy: map<uid,bool>; active when either value is true
+    // - verifiedAt, updatedAt: timestamps
+    // A user may read only their own materialized exclusion targets. Kakao
+    // verification and every write are owned by the Admin SDK callable.
+    match /recommendationExclusions/{viewerUid} {
+      allow get, list, create, update, delete: if false;
+
+      match /targets/{targetUid} {
+        allow get, list: if isSelf(viewerUid);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Same-department avoidance is materialized separately from Kakao friend
+    // exclusions. The pair document contains only recommendation-filter
+    // metadata and is written by the Admin SDK trigger.
+    match /departmentRecommendationExclusions/{viewerUid} {
+      allow get, list, create, update, delete: if false;
+
+      match /targets/{targetUid} {
+        allow get, list: if isSelf(viewerUid);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Blocks and Reports
+    // -----------------------------------------------------------------------
+    // Operations metadata is created and maintained through the Admin SDK.
+    // A Firebase Auth custom claim is checked by callable Functions; this
+    // document is deliberately never a client-readable source of authority.
+    match /admin/{adminUid} {
+      allow read, write: if false;
+    }
+
+    // Blocks are written only by the server (reportAndBlockUser,
+    // syncContactBlocks). A block must exist in both directions, and a client
+    // can only ever write its own side, so client writes are denied here.
+    // Reads stay open to the owner for defensive filtering in the feed.
+    match /blocks/{viewerUid} {
+      allow read: if isSelf(viewerUid);
+      allow create, update: if false;
+      allow delete: if isSelf(viewerUid);
+
+      match /targets/{targetUid} {
+        allow read: if isSelf(viewerUid);
+        allow create, update: if false;
+        allow delete: if isSelf(viewerUid);
+      }
+    }
+
+    // User reports go through the reportAndBlockUser callable so that the
+    // report and both block directions are written atomically.
+    match /reports/{reportId} {
+      allow create: if false;
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // 이전: read/update/delete 가 모두 `if true`.
+    // 본인이 낸 문의는 본인이 볼 수 있어야 하므로 소유자 스코프 read 만 남긴다.
+    // 상태 변경과 삭제는 서버 전용이다.
+    match /app_issue_reports/{reportId} {
+      allow create: if
+        isSignedIn() && !isPlayReviewSession() &&
+        request.resource.data.reporterId is string &&
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() > 0 &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() > 0 &&
+        request.resource.data.allowContact is bool &&
+        request.resource.data.sourceScreen is string &&
+        request.resource.data.platform is string &&
+        request.resource.data.status is string &&
+        // Compatibility path for older clients.  New submissions go through
+        // submitIssueReport so a follow-up case and support message are one
+        // server transaction; clients may never opt into follow-up directly.
+        !request.resource.data.keys().hasAny(['allowOperationsFollowUp']);
+
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // 이전: read/update/delete 가 모두 `if true`.
+    match /app_inquiries/{inquiryId} {
+      allow create: if
+        isSignedIn() && !isPlayReviewSession() &&
+        request.resource.data.inquirerId is string &&
+        request.resource.data.inquirerId == request.auth.uid &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() > 0 &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() > 0 &&
+        request.resource.data.allowContact is bool &&
+        request.resource.data.sourceScreen is string &&
+        request.resource.data.platform is string &&
+        request.resource.data.status is string &&
+        !request.resource.data.keys().hasAny(['allowOperationsFollowUp']);
+
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Legacy Kakao-derived phone hashes. These are no longer used and remain
+    // inaccessible while account-deletion cleanup removes existing documents.
+    // -----------------------------------------------------------------------
+    match /userPrivate/{uid} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // User Private Verifications
+    // Identity-verification source data and identifiers are server-only.
+    // -----------------------------------------------------------------------
+    match /userPrivateVerifications/{uid} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Legacy Kakao-derived reverse index (disabled; server cleanup only).
+    // -----------------------------------------------------------------------
+    match /phoneHashIndex/{phoneHash} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Verified Phone Hash Index
+    // userPrivateVerifications/{uid}.phoneHash에서 KG이니시스 본인인증 완료
+    // 시 서버가 파생한다. 원본 전화번호와 해시는 클라이언트에 공개하지 않는다.
+    // -----------------------------------------------------------------------
+    match /verifiedPhoneHashIndex/{phoneHash} {
+      allow read, write: if false;
+      match /owners/{ownerUid} {
+        allow read, write: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Contact Blocked Hash Index (contact block reverse index - server/admin only)
+    // -----------------------------------------------------------------------
+    match /contactBlockedHashIndex/{phoneHash} {
+      allow read, write: if false;
+      match /owners/{ownerUid} {
+        allow read, write: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // AI Profiles (dummy profile metadata such as height, for AI preference screens)
+    // -----------------------------------------------------------------------
+    match /ai_profiles/{profileId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Model Recs (AI recommendation results: rrf, clip, svd, knn - stored by server, read by app)
+    // Reads may be allowed when Kakao login leaves request.auth null.
+    // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` — 누구나 임의 사용자의 추천 결과를 읽을 수
+    // 있었다. 추천 결과에는 candidateUid 목록과 source score 가 들어간다.
+    match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} {
+      allow read: if isSelf(userId);
+      allow write: if false;
+    }
+
+    // Policy-safe Top3 materialized from RRF. Keep the same owner-only serving
+    // boundary as modelRecs so either feed can be selected by the app without
+    // exposing another user's candidate list or allowing client tampering.
+    match /dailyRecs/{userId}/days/{dateKey} {
+      allow read: if isSelf(userId);
+      allow write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Asks (anonymous questions: 1:1 question)
+    // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` 로 전체 무물 내용이 공개였고, create 에
+    // request.auth 조건이 없어서 fromUserId 를 위조해 남의 이름으로 질문을
+    // 보낼 수 있었다. update 도 아무나 상태를 바꿀 수 있었다.
+    match /asks/{askId} {
+      allow read: if isAskParticipant(resource.data);
+
+      allow create: if
+        (isCanonicalAppSession() || isPlayReviewSession()) &&
+        request.resource.data.fromUserId is string &&
+        request.resource.data.fromUserId == request.auth.uid &&
+        request.resource.data.toUserId is string &&
+        request.resource.data.toUserId.size() > 0 &&
+        request.resource.data.toUserId != request.auth.uid &&
+        askRecipientPartitionIsValid() &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.status == 'sent';
+
+      allow update: if
+        isSignedIn() &&
+        resource.data.toUserId == request.auth.uid &&
+        resource.data.status == 'sent' &&
+        request.resource.data.status == 'read' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'readAt', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Interactions (like / nope / view / message)
+    // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` 로 전체 like/nope 기록이 공개였고, create 에
+    // request.auth 조건이 없어서 fromUserId 를 위조할 수 있었다. 위조된 like 는
+    // onInteractionCreated(index.ts:2304)를 통해 실제 매치와 채팅방을 만들었다.
+    match /interactions/{interactionId} {
+      allow read: if isInteractionParticipant(resource.data);
+      allow create: if
+        (isCanonicalAppSession() || isPlayReviewSession()) &&
+        request.resource.data.fromUserId is string &&
+        request.resource.data.fromUserId == request.auth.uid &&
+        request.resource.data.toUserId is string &&
+        request.resource.data.toUserId.size() > 0 &&
+        request.resource.data.action is string &&
+        request.resource.data.source is string &&
+        interactionPartitionIsValid() &&
+        request.resource.data.keys().hasOnly([
+          'fromUserId', 'toUserId', 'action', 'source',
+          'metadata', 'createdAt', 'dataPartition'
+        ]);
+      allow update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Matches (match records)
+    // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` — 누구나 전체 매치 기록을 볼 수 있었다.
+    match /matches/{matchId} {
+      allow read: if isMatchParticipant(resource.data);
+      allow create: if false;
+      allow update: if isMatchParticipant(resource.data) &&
+        matchStatusOnlyMovesToUnmatched();
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Event 3-person teams (invites/status - writes only by Cloud Functions, reads for app sync)
+    // -----------------------------------------------------------------------
+    match /eventTeamSetups/{teamSetupId} {
+      allow read: if isEventTeamSetupParticipant(resource.data);
+      allow write: if false;
+    }
+
+    match /eventTeamInvites/{inviteId} {
+      allow read: if isEventTeamInviteParticipant(resource.data);
+      allow write: if false;
+    }
+
+    match /eventTeamMatches/{matchId} {
+      allow read: if isEventTeamMatchParticipant(resource.data);
+      allow write: if false;
+    }
+
+    match /eventTeamMatchLocks/{lockId} {
+      allow read, write: if false;
+    }
+
+    match /eventTeamMeetingRequests/{requestId} {
+      allow read: if isEventTeamMatchParticipant(resource.data);
+      allow write: if false;
+    }
+
+    match /eventTeamMeetingRequestLocks/{lockId} {
+      allow read, write: if false;
+    }
+
+    match /eventThreeVsThreeMatches/{matchId} {
+      allow read: if isEventTeamMatchParticipant(resource.data);
+      allow write: if false;
+    }
+
+    // AUTHENTICATED_LIMITED_PROFILE — server-synced display surface only.
+    // Never store email, studentEmail, preferenceVector, tokens, or
+    // moderation internals here.
+    match /publicProfiles/{uid} {
+      allow get: if (isCanonicalAppSession() || isPlayReviewSession()) &&
+        samePartitionAsCaller(resource.data);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // Google Play review authentication, throttling, reset audit, and
+    // synthetic telemetry are exclusively owned by Cloud Functions/Admin SDK.
+    // Credentials are held in Secret Manager and never written to Firestore.
+    match /playReviewRateLimits/{ipHash} {
+      allow read, write: if false;
+    }
+    match /playReviewConfig/{docId} {
+      allow read, write: if false;
+    }
+    match /playReviewSessions/{reviewerUid} {
+      allow read, write: if false;
+    }
+    match /playReviewEvents/{reviewerUid}/events/{eventId} {
+      allow read, write: if false;
+    }
+
+    // Season meeting money/ops — Admin SDK / callables only.
+    match /seasonDepositIntents/{intentId} {
+      allow read, write: if false;
+    }
+    match /seasonMeetingCancelAudit/{id} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Default deny
+    // -----------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
