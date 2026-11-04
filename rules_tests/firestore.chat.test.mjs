@@ -11,6 +11,7 @@ import {
 } from "./helpers.mjs";
 
 import {
+  Timestamp,
   collection,
   doc,
   getDoc,
@@ -165,6 +166,9 @@ test("P0-2 retirement: a promise message is accepted without readBy; with readBy
     text: "약속 요청",
     promiseId: "promise_new",
     status: "requested",
+    // P1-2: the promise card schema requires the fields the client always
+    // writes (chat_service.dart createPromise), dateTime included.
+    dateTime: Timestamp.fromDate(new Date(Date.now() + 3600000)),
     place: "신촌",
     placeCategory: "cafe",
     isEdited: false,

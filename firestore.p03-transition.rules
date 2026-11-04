@@ -1605,6 +1605,94 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           );
     }
 
+    // P1-2: fields a participant may change on ANY room through the general
+    // update branch. Everything else on a room document is server-owned:
+    // participantIds / participantInfo (identity shown to the peer), type /
+    // roomType (the discriminator the block and meeting rules key on),
+    // status / writable (lifecycle), matchId / meetingId and the meeting link
+    // fields, dataPartition, unlockedBy / heartCost, and the real-photo
+    // disclosure fields (photoBlurUnlocked*) which only sendChatText writes.
+    // The P0-2 own-read-state write is a separate branch and stays as is.
+    function chatRoomClientMutableKeys() {
+      return ['lastMessage', 'lastMessageAt', 'updatedAt', 'activePromise'];
+    }
+
+    function chatRoomClientMutableOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(chatRoomClientMutableKeys());
+    }
+
+    // P1-2: lifecycle gate for client writes INTO a room (messages, promises).
+    // A room closed by an unmatch or an account deletion, or set read_only /
+    // archived by a meeting lifecycle, accepts nothing from clients. Legacy
+    // rooms without a status are active.
+    function chatRoomAcceptsClientWrites(data) {
+      return data != null &&
+          data.get('status', 'active') == 'active' &&
+          data.get('writable', true) == true;
+    }
+
+    // P1-2: strict client message schemas. Free text is server-only
+    // (sendChatText); system / promise_confirmed / promise_in_progress /
+    // promise_completed and every other type are server-written or
+    // reached by update only. A client may CREATE exactly two shapes:
+    //   promise_request  — chat_service.dart createPromise
+    //   promise_deleted  — chat_service.dart cancelPromise
+    // Unknown types and extra fields are refused, so a forged type can no
+    // longer carry unmoderated text past the callable.
+    function promiseRequestMessageKeys() {
+      return [
+        'senderId', 'text', 'type', 'promiseId',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng', 'placeThumbnailUrl',
+        'status', 'isEdited', 'editedAt', 'createdAt', 'updatedAt',
+        'readBy'
+      ];
+    }
+
+    function promiseDeletedMessageKeys() {
+      return [
+        'senderId', 'text', 'type', 'promiseId',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng', 'placeThumbnailUrl',
+        'status', 'createdAt', 'updatedAt',
+        'readBy'
+      ];
+    }
+
+    function isPromiseRequestMessageCreate() {
+      return request.resource.data.type == 'promise_request' &&
+          request.resource.data.keys().hasOnly(promiseRequestMessageKeys()) &&
+          request.resource.data.keys().hasAll(['senderId', 'text', 'type', 'promiseId', 'dateTime', 'place', 'placeCategory', 'status']) &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 100 &&
+          request.resource.data.promiseId is string &&
+          request.resource.data.promiseId.size() > 0 &&
+          request.resource.data.promiseId.size() <= 128 &&
+          request.resource.data.dateTime is timestamp &&
+          request.resource.data.place is string &&
+          request.resource.data.place.size() <= 200 &&
+          request.resource.data.placeCategory is string &&
+          request.resource.data.placeCategory.size() <= 50 &&
+          request.resource.data.status == 'requested' &&
+          (!request.resource.data.keys().hasAny(['isEdited']) || request.resource.data.isEdited == false);
+    }
+
+    function isPromiseDeletedMessageCreate(roomId) {
+      return request.resource.data.keys().hasOnly(promiseDeletedMessageKeys()) &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() <= 100 &&
+          canCreatePromiseDeletionMessage(roomId);
+    }
+
+    function isClientCreatableChatMessage(roomId) {
+      return request.resource.data.type is string && (
+          isPromiseRequestMessageCreate() ||
+          isPromiseDeletedMessageCreate(roomId)
+      );
+    }
+
     function seasonMeetingRoomMutableOnly() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'lastMessage',
@@ -1653,6 +1741,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow update: if isChatRoomParticipant() &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(unreadModelServerKeys()) &&
         !hasOneToOneChatBlock(resource.data) &&
+        // P1-2: only chat metadata and the promise mirror are client-mutable.
+        chatRoomClientMutableOnly() &&
         isChatRoomParticipantAfter() &&
         chatRoomParticipantIdsUnchanged() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
@@ -1676,7 +1766,12 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isParticipantMessageAuthor(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
+          // P1-2: closed / read_only / archived rooms accept nothing; free
+          // text is server-only and a client may create only the two promise
+          // card shapes with their exact fields.
+          chatRoomAcceptsClientWrites(blindRoomData(roomId)) &&
           request.resource.data.type != 'text' &&
+          isClientCreatableChatMessage(roomId) &&
           // P0-2: the accounting marker is written only by the server. The
           // retired receipt field is tolerated only as `[own uid]` from an
           // installed old build (transitional, NEW-18) and is ignored.
@@ -1707,6 +1802,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isExistingChatRoomParticipant(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
+          chatRoomAcceptsClientWrites(blindRoomData(roomId)) &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
             blindRoomData(roomId).writable == true) &&
           request.resource.data.keys().hasOnly(promiseClientCreatableKeys()) &&

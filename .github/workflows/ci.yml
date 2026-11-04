@@ -115,6 +115,15 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
           --project demo-p11-match
           "node --test functions/.ci-emulator-lib/mutualMatch.emulator-test.js"
+      # P1-2: sendChatText authorisation decided inside the transaction —
+      # closed / read_only / archived / writable:false rooms, removed
+      # participants, bilateral blocks regardless of room type, partition
+      # boundary, and clientMessageId idempotency under concurrent retries.
+      - name: P1-2 chat send authorisation and idempotency (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p12-chat
+          "node --test functions/.ci-emulator-lib/chatSafety.emulator-test.js"
       # Blind-meeting replacement search (both scheduled ticks run it): fill
       # by same-gender FIFO candidate, concurrent ticks fill once, deadline
       # cancellation refunds remaining members once, matching deferral.

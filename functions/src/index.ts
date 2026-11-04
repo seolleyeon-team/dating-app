@@ -4571,6 +4571,13 @@ export const onChatMessageCreated = onDocumentCreated(
     const participantIds = Array.isArray(participantIdsRaw)
       ? participantIdsRaw.map((v) => asString(v)).filter((v) => v.length > 0)
       : [];
+    // P1-2: a message whose sender is not a current participant should not
+    // exist (rules + sendChatText refuse it); if one ever does, it must not
+    // push anybody. Unread accounting above already ran for consistency.
+    if (!participantIds.includes(senderId)) {
+      logger.warn("Chat push skipped: sender is not a room participant", { roomId, messageId: event.params.messageId });
+      return;
+    }
     const targetUserIds = participantIds.filter((id) => id !== senderId);
 
     if (targetUserIds.length === 0) return;
