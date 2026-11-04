@@ -188,7 +188,7 @@ const SERVER_STATUS_BY_APP_STATUS: ReadonlyMap<string, string> = new Map(
 function meetingServerStatus(data: Record<string, unknown> | undefined): string {
   const raw = (typeof data?.serverStatus === "string" ? data.serverStatus.trim() : "") ||
     (typeof data?.status === "string" ? data.status.trim() : "");
-  // Same legacy normalisation as store.toServerStatus (old deposit states).
+  // Same legacy normalisation as store.toServerStatus (pre-2026-09 states).
   const value = normalizeLegacyMeetingStatus(raw);
   if (value in MEETING_STATUS_TO_APP) return value;
   return SERVER_STATUS_BY_APP_STATUS.get(value) ?? "";
