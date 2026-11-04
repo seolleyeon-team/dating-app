@@ -1,4 +1,4 @@
-import { FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import type { Auth } from "firebase-admin/auth";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -52,6 +52,16 @@ function scope(value: unknown): Scope {
 
 function postCollection(dataPartition: Partition): string {
   return dataPartition === "play_review" ? "playReviewBambooPosts" : "bamboo_posts";
+}
+
+// P0-3: public Bamboo documents carry no author; ownership lives only in these
+// server/owner-readable mappings.
+function postOwnerCollection(dataPartition: Partition): string {
+  return dataPartition === "play_review" ? "playReviewBambooPostAuthors" : "bamboo_post_authors";
+}
+
+function commentOwnerCollection(dataPartition: Partition): string {
+  return dataPartition === "play_review" ? "playReviewBambooCommentAuthors" : "bamboo_comment_authors";
 }
 
 async function requireOperations(firestore: Firestore, auth: AuthContext): Promise<string> {
@@ -125,16 +135,43 @@ async function hideAuthorCommunityContent(params: {
   reportId: string;
 }) {
   const { firestore, partition: dataPartition, authorId, moderatorId, reportId } = params;
-  const posts = await firestore.collection(postCollection(dataPartition))
-    .where("authorId", "==", authorId).get();
-  const comments = await firestore.collectionGroup("comments")
-    .where("authorId", "==", authorId).get();
-  const writes = [
-    ...posts.docs.map((doc) => doc.ref),
-    ...comments.docs
-      .filter((doc) => doc.ref.path.startsWith(`${postCollection(dataPartition)}/`))
-      .map((doc) => doc.ref),
-  ];
+  const root = firestore.collection(postCollection(dataPartition));
+  // The author's content is found through the private ownership mappings (P0-3
+  // removed the public authorId). The legacy authorId queries stay as a union so
+  // a document the migration has not reached yet is still covered.
+  const [postMappings, commentMappings, legacyPosts, legacyComments] = await Promise.all([
+    firestore.collection(postOwnerCollection(dataPartition)).where("ownerUid", "==", authorId).get(),
+    firestore.collection(commentOwnerCollection(dataPartition)).where("ownerUid", "==", authorId).get(),
+    root.where("authorId", "==", authorId).get(),
+    firestore.collectionGroup("comments").where("authorId", "==", authorId).get(),
+  ]);
+  const postRefs = new Map<string, DocumentReference>();
+  const commentRefs = new Map<string, DocumentReference>();
+  for (const mapping of postMappings.docs) {
+    const postId = text(mapping.get("postId"), 128) || mapping.id;
+    const ref = root.doc(postId);
+    postRefs.set(ref.path, ref);
+  }
+  for (const mapping of commentMappings.docs) {
+    const postId = text(mapping.get("postId"), 128);
+    const commentId = text(mapping.get("commentId"), 128);
+    if (!postId || !commentId) continue;
+    const ref = root.doc(postId).collection("comments").doc(commentId);
+    commentRefs.set(ref.path, ref);
+  }
+  legacyPosts.docs.forEach((doc) => postRefs.set(doc.ref.path, doc.ref));
+  legacyComments.docs
+    .filter((doc) => doc.ref.path.startsWith(`${postCollection(dataPartition)}/`))
+    .forEach((doc) => commentRefs.set(doc.ref.path, doc.ref));
+  // A mapping can outlive its document; never create a stub by writing to it.
+  const existing = async (refs: DocumentReference[]) =>
+    refs.length === 0 ? [] : (await firestore.getAll(...refs)).filter((snap) => snap.exists).map((snap) => snap.ref);
+  const [postWrites, commentWrites] = await Promise.all([
+    existing([...postRefs.values()]),
+    existing([...commentRefs.values()]),
+  ]);
+  const posts = { size: postWrites.length };
+  const writes = [...postWrites, ...commentWrites];
   const update = {
     isDeleted: true,
     moderationHidden: true,
@@ -217,8 +254,18 @@ export function createCommunityModerationCallables(deps: Dependencies) {
     if (["actioned", "dismissed"].includes(text(report.status, 40))) {
       throw new HttpsError("failed-precondition", "이미 처리된 신고예요.");
     }
-    const reportedId = safeUid(report.reportedId, "reportedId");
     const dataPartition = partition(report.dataPartition);
+    // P0-3: a Bamboo report on content whose historical owner could not be
+    // proven carries reportedId null. It can still be dismissed; an account
+    // action needs a resolved owner.
+    if (decision === "dismiss" && !text(report.reportedId, 128)) {
+      await reportRef.set({
+        status: "dismissed", dismissalReason: reason, dismissedBy: operatorId,
+        dismissedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      return { ok: true, decision };
+    }
+    const reportedId = safeUid(report.reportedId, "reportedId");
     const accountRef = firestore.collection("users").doc(reportedId);
     const account = await accountRef.get();
     if (!account.exists) throw new HttpsError("not-found", "피신고 계정을 찾을 수 없어요.");

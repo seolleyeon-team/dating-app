@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FieldValue, type Firestore, type Transaction } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type Firestore, type Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import {
   BAMBOO_COMMENT_OWNER_COLLECTION,
@@ -239,15 +239,48 @@ export function createCommunitySafetyCallables(firestore: Firestore, resolveUser
         .collection(BAMBOO_HIDDEN_CONTENT_SUBCOLLECTION).doc(key);
 
       await firestore.runTransaction(async (tx) => {
-        const [content, owner, existing] = await Promise.all([tx.get(contentRef), tx.get(ownerRef), tx.get(reportRef)]);
+        const parentRef = firestore.collection(root.posts).doc(postId);
+        const [content, owner, existing, parent] = await Promise.all([
+          tx.get(contentRef), tx.get(ownerRef), tx.get(reportRef),
+          commentId ? tx.get(parentRef) : Promise.resolve(null),
+        ]);
         if (!content.exists) throw new HttpsError("not-found", "신고할 콘텐츠를 찾을 수 없어요.");
         const resolution = resolveBambooOwner(owner.exists ? owner.data() : null, { postId, commentId: commentId ?? undefined });
         const ownerUid = resolution.status === "mapped" ? resolution.ownerUid : null;
         if (ownerUid === user.userId) {
           throw new HttpsError("failed-precondition", "내가 쓴 글은 신고할 수 없어요.");
         }
+        const ownerAccount = ownerUid && !existing.exists
+          ? await tx.get(firestore.collection("users").doc(ownerUid))
+          : null;
         const now = FieldValue.serverTimestamp();
         if (!existing.exists) {
+          // Operations-console schema (communityModeration.ts): the snapshot,
+          // deadline and "new" alert live only in server-only collections; the
+          // reporter never receives any of it.
+          const accountData = (ownerAccount?.data() ?? {}) as Record<string, unknown>;
+          const onboarding = (accountData.onboarding ?? {}) as Record<string, unknown>;
+          const ownerNickname = String(accountData.nickname ?? onboarding.nickname ?? "").trim() || null;
+          const value = content.data() ?? {};
+          const parentValue = parent?.data() ?? {};
+          const contentSnapshot = commentId
+            ? {
+              kind: "comment", postId, commentId,
+              content: String(value.content ?? ""),
+              authorId: ownerUid, authorNickname: ownerNickname,
+              parentPostContent: String(parentValue.content ?? ""),
+              parentPostCategory: String(parentValue.category ?? ""),
+            }
+            : {
+              kind: "post", postId,
+              content: String(value.content ?? ""),
+              category: String(value.category ?? ""),
+              authorId: ownerUid, authorNickname: ownerNickname,
+            };
+          const deadlineAt = Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000);
+          tx.set(firestore.collection("moderation_alerts").doc(`${reportId}_new_once`), {
+            reportId, level: "new", dataPartition: partition, deadlineAt, createdAt: now, unread: true,
+          }, { merge: true });
           tx.create(reportRef, {
             reporterId: user.userId,
             // 작성자를 모르면 null 로 남기고 운영이 콘텐츠 경로로 조사한다.
@@ -259,7 +292,12 @@ export function createCommunitySafetyCallables(firestore: Firestore, resolveUser
             contentType,
             contentId: commentId ?? postId,
             parentContentId: commentId ? postId : null,
-            status: root.review ? "test_only" : "pending",
+            // Review reports use the same operations queue as production; the
+            // partition keeps their content isolated during an action.
+            status: "pending",
+            reportKind: "community",
+            contentSnapshot,
+            deadlineAt,
             dataPartition: partition,
             reviewFixture: root.review,
             createdAt: now,

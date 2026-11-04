@@ -211,3 +211,35 @@ test("리뷰 L1: 탈퇴 정리로 매핑이 지워진 삭제 글은 위반이 �
   assert.equal(v.violations, 0, JSON.stringify(v));
   assert.equal(v.deletedWithoutOwner, 1);
 });
+
+test("리뷰 M1: canary(--only-post / --limit) 는 알림을 고치지 않는다 — 전체 실행이 고친다", async () => {
+  await seedLegacy();
+  await run(["--apply", "--only-post", "solo"]);
+  assert.equal((await data("users/alice/notifications/n1")).actorId, "bob", "canary left notifications alone");
+  await run(["--apply", "--limit", "1"]);
+  assert.equal((await data("users/alice/notifications/n1")).actorId, "bob");
+  await run(["--apply"]);
+  assert.equal((await data("users/alice/notifications/n1")).actorId, null);
+});
+
+test("리뷰 L1: likeCount 와 좋아요 문서 수가 다르면 보고하고, 명시 플래그로만 고친다", async () => {
+  await seedLegacy();
+  // mapped 글에는 좋아요 문서 1개가 있는데 likeCount 는 0 이다 (예전 규칙에서 생긴 drift).
+  assert.equal((await data("bamboo_posts/mapped")).likeCount, 0);
+  await run(["--apply"]);
+  assert.equal((await data("bamboo_posts/mapped")).likeCount, 0, "not repaired without the flag");
+  await run(["--apply", "--repair-like-counters"]);
+  assert.equal((await data("bamboo_posts/mapped")).likeCount, 1);
+});
+
+test("리뷰 L6: 매핑도 식별 필드도 없는 살아 있는 글은 이상으로 보고되고, 깨진 매핑은 verify 위반이다", async () => {
+  await clear();
+  await db.doc("bamboo_posts/orphan").set({ postId: "orphan", content: "x", isDeleted: false });
+  assert.equal(await run(["--apply"]), 2);
+  assert.equal(await exists("bamboo_ownership_unresolved/bamboo_posts__orphan"), false);
+  await db.doc("bamboo_posts/bad").set({ postId: "bad", content: "x", isDeleted: false });
+  await db.doc("bamboo_post_authors/bad").set({ postId: "other", ownerUid: "alice" });
+  const v = await verify(db, admin);
+  assert.equal(v.malformedMappings, 1);
+  assert.ok(v.violations >= 2);
+});

@@ -74,10 +74,15 @@ test("멱등: 이미 정리된 문서는 아무 것도 하지 않는다", () => 
     classifyRecord({ publicData: { content: "x" }, mapping: null, provenance: "none", unresolvedRecorded: true, expected: P }).status,
     "UNRESOLVED_RECORDED"
   );
-  // 소유 근거도, 미해결 기록도 없는 글은 기록을 남긴다
+  // 식별 필드도 매핑도 없는 살아 있는 글은 writer 버그 — 미해결로 덮지 않고 이상으로 보고
+  assert.deepEqual(
+    classifyRecord({ publicData: { content: "x" }, mapping: null, provenance: "none", unresolvedRecorded: false, expected: P }),
+    { status: "OWNERLESS_WITHOUT_EVIDENCE", action: "skip" }
+  );
+  // 탈퇴 정리로 soft delete 된 글은 정상 종착
   assert.equal(
-    classifyRecord({ publicData: { content: "x" }, mapping: null, provenance: "none", unresolvedRecorded: false, expected: P }).action,
-    "redactUnresolved"
+    classifyRecord({ publicData: { content: "x", isDeleted: true }, mapping: null, provenance: "none", expected: P }).status,
+    "DELETED_WITHOUT_OWNER"
   );
 });
 

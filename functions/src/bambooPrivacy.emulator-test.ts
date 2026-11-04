@@ -26,9 +26,11 @@ import {
   deleteCommunityPost,
   onBambooCommentCreated,
   onBambooPostLikeCreated,
+  decideCommunityReport,
   reportAndBlockUser,
   reportBambooContent,
 } from "./index";
+import { getAuth } from "firebase-admin/auth";
 import { createInAppNotification } from "./shared/notify";
 import { executeAccountDeletionSocialCleanup } from "./accountDeletionSocialCleanup";
 import { BAMBOO_PUBLIC_IDENTITY_FIELDS } from "./bambooOwnership";
@@ -217,7 +219,14 @@ test("신고: 작성자는 서버 신고 문서에만 남고, 신고자에게는
   for (const r of reports) {
     assert.equal(r.reportedId, A, "moderation still knows the author (server-only collection)");
     assert.equal(r.ownershipStatus, "mapped");
+    // operations-console schema (communityModeration.ts)
+    assert.equal(r.status, "pending");
+    assert.equal(r.reportKind, "community");
+    assert.equal(r.contentSnapshot.authorId, A);
+    assert.ok(r.deadlineAt);
   }
+  const alerts = await db.collection("moderation_alerts").where("level", "==", "new").get();
+  assert.ok(alerts.docs.filter((d) => reports.length && String(d.id).startsWith("bamboo_")).length >= 2);
   const hidden = (await db.collection("users").doc(B).collection("bambooHiddenContent").get()).docs;
   assert.deepEqual(hidden.map((d) => d.id).sort(), [postId, `${postId}__${commentId}`].sort());
   for (const h of hidden) assertNoIdentity(h.data(), [A], [nick.A], "hidden entry");
@@ -273,4 +282,43 @@ test("계정삭제: 글·댓글 soft delete 가 레거시 authorId 를 지우고
   assert.equal((await db.collection("bamboo_posts").doc(postId).collection("comments").doc(commentId).get()).data()?.isDeleted, true);
   assert.equal((await db.collection("bamboo_post_authors").doc(postId).get()).exists, false);
   assert.equal((await db.collection("bamboo_comment_authors").doc(`${postId}__${commentId}`).get()).exists, false);
+});
+
+test("moderation: suspending a mapped owner hides their redacted content via the private mappings; an unresolved report can be dismissed", async () => {
+  const { A, B } = await scenario();
+  await getAuth().createUser({ uid: A }).catch(() => undefined);
+  const OPS = fresh("ops");
+  await db.collection("admin").doc(OPS).set({ active: true });
+  const ops = { uid: OPS, token: { operations: true } };
+  const { postId } = await call<{ postId: string }>(createCommunityPost, A, { content: "글", category: "고민", tags: [] });
+  const { commentId } = await call<{ commentId: string }>(createCommunityComment, A, { postId, content: "A 댓글" });
+  // no authorId anywhere on public docs
+  assert.ok(!("authorId" in ((await db.collection("bamboo_posts").doc(postId).get()).data() ?? {})));
+  await call(reportBambooContent, B, { contentType: "bamboo_post", postId, reason: "스팸·광고" });
+  const report = (await db.collection("reports").where("reporterId", "==", B).get()).docs[0];
+  await (decideCommunityReport as unknown as Runnable).run({
+    data: { reportId: report.id, decision: "suspend", reason: "테스트" }, auth: ops, rawRequest: {},
+  });
+  const post = (await db.collection("bamboo_posts").doc(postId).get()).data() ?? {};
+  const comment = (await db.collection("bamboo_posts").doc(postId).collection("comments").doc(commentId).get()).data() ?? {};
+  assert.deepEqual([post.isDeleted, post.moderationHidden], [true, true]);
+  assert.deepEqual([comment.isDeleted, comment.moderationHidden], [true, true]);
+  assert.equal((await db.collection("users").doc(A).get()).data()?.status, "suspended");
+  assert.equal((await report.ref.get()).data()?.status, "actioned");
+
+  // legacy content whose owner was never proven: reportedId null → dismiss works, account actions refuse
+  const legacy = fresh("legacy");
+  await db.collection("bamboo_posts").doc(legacy).set({
+    postId: legacy, content: "x", category: "고민", tags: [], likeCount: 0, commentCount: 0, score7d: 0, isDeleted: false,
+  });
+  await call(reportBambooContent, B, { contentType: "bamboo_post", postId: legacy, reason: "기타" });
+  const unresolved = (await db.collection("reports").where("contentId", "==", legacy).get()).docs[0];
+  assert.equal(unresolved.data().reportedId, null);
+  await expectCode((decideCommunityReport as unknown as Runnable).run({
+    data: { reportId: unresolved.id, decision: "suspend", reason: "x" }, auth: ops, rawRequest: {},
+  }), "invalid-argument");
+  await (decideCommunityReport as unknown as Runnable).run({
+    data: { reportId: unresolved.id, decision: "dismiss", reason: "작성자 미확정" }, auth: ops, rawRequest: {},
+  });
+  assert.equal((await unresolved.ref.get()).data()?.status, "dismissed");
 });

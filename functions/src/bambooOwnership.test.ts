@@ -71,7 +71,14 @@ test("public 대나무숲 writer 는 작성자 식별 필드를 쓰지 않는다
       // comments and type declarations (e.g. `type AppUser = { userId: string }`) are not writes
       .filter((line) => !/^\s*(\/\/|\*|\/\*\*|type\s)/.test(line))
       .join("\n");
-  const writer = src("communitySafety.ts");
+  // Only the public content writers. reportBambooContent stores the mapped
+  // owner in the server-only `reports` snapshot for the operations console.
+  const safety = src("communitySafety.ts");
+  const writer = safety.slice(
+    safety.indexOf("createCommunityPost: onCall"),
+    safety.indexOf("deleteCommunityPost: onCall"),
+  );
+  assert.ok(writer.includes("createCommunityComment: onCall"), "writer section found");
   for (const field of BAMBOO_PUBLIC_IDENTITY_FIELDS) {
     if (field === "ownerUid") continue; // 비공개 매핑의 필드
     assert.ok(!new RegExp(`\\b${field}\\s*:`).test(writer), `communitySafety.ts must not write ${field}`);

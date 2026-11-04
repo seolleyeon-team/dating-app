@@ -132,10 +132,14 @@ export function classifyRecord({ publicData, mapping, provenance, unresolvedReco
     return { status: "TRUSTED_HISTORICAL_PROVENANCE", action: "createMappingAndRedact", ownerUid: publicAuthor };
   }
   // 소유자 근거가 없다. 소유자는 정하지 않지만, 공개 식별 정보는 남기지 않는다.
-  if (needsRedaction || !unresolvedRecorded) {
+  if (needsRedaction) {
     return { status: "LEGACY_AUTHOR_ONLY", action: "redactUnresolved" };
   }
-  return { status: "UNRESOLVED_RECORDED", action: "none" };
+  if (unresolvedRecorded) return { status: "UNRESOLVED_RECORDED", action: "none" };
+  // 식별 필드도 매핑도 없는 문서: 탈퇴 정리로 soft delete 된 글이면 정상 종착이고,
+  // 살아 있는 글이면 매핑을 빠뜨린 writer 버그다 — 미해결로 덮지 않고 보고한다.
+  if (publicData?.isDeleted === true) return { status: "DELETED_WITHOUT_OWNER", action: "none" };
+  return { status: "OWNERLESS_WITHOUT_EVIDENCE", action: "skip" };
 }
 
 /**
@@ -214,6 +218,7 @@ export function parseArgs(argv) {
     limit: Number.POSITIVE_INFINITY,
     onlyPost: "",
     anomalyIdsOut: "",
+    repairLikeCounters: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -235,6 +240,7 @@ export function parseArgs(argv) {
       case "--limit": options.limit = parsePositiveInteger(value(), "--limit"); break;
       case "--only-post": options.onlyPost = value(); break;
       case "--anomaly-ids-out": options.anomalyIdsOut = value(); break;
+      case "--repair-like-counters": options.repairLikeCounters = true; break;
       default: throw new Error(`Unknown argument: ${arg}`);
     }
   }
@@ -399,6 +405,25 @@ async function sharedCommitIndex(firestore, root) {
   return { posts, comments };
 }
 
+/**
+ * likeCount 와 실제 좋아요 문서 수가 다르면 보고한다. 새 규칙은 좋아요 삭제에 부모
+ * likeCount -1 을 요구하므로, 카운터가 문서 수보다 작은 글에서는 좋아요 취소가 막힌다.
+ * `--apply --repair-like-counters` 일 때만 likeCount 를 실제 수로 고친다.
+ */
+async function checkLikeCounter(ctx, summary, ref) {
+  const likes = (await ref.collection("likes").count().get()).data().count;
+  const snap = await ref.get();
+  const counter = Number(snap.get("likeCount") ?? 0);
+  if (counter !== likes) {
+    summary.likeCounterDrift = (summary.likeCounterDrift ?? 0) + 1;
+    if (ctx.options.apply && ctx.options.repairLikeCounters) {
+      await ref.update({ likeCount: likes });
+      summary.likeCountersRepaired = (summary.likeCountersRepaired ?? 0) + 1;
+    }
+  }
+  return likes;
+}
+
 async function migrateRoot(ctx, root, checkpoint) {
   const { firestore, admin, options } = ctx;
   const summary = emptySummary();
@@ -431,7 +456,7 @@ async function migrateRoot(ctx, root, checkpoint) {
         kind: "post",
         sharedCommit: shared.posts,
       });
-      summary.postLikes += (await post.ref.collection("likes").count().get()).data().count;
+      summary.postLikes += await checkLikeCounter(ctx, summary, post.ref);
       const comments = await post.ref.collection("comments").get();
       for (const comment of comments.docs) {
         summary.comments += 1;
@@ -445,7 +470,7 @@ async function migrateRoot(ctx, root, checkpoint) {
           kind: "comment",
           sharedCommit: shared.comments,
         });
-        summary.commentLikes += (await comment.ref.collection("likes").count().get()).data().count;
+        summary.commentLikes += await checkLikeCounter(ctx, summary, comment.ref);
       }
       after = post.id;
       // checkpoint 는 실제로 다 적용된 글만 지나간다. dry-run 이나 --limit 로
@@ -515,6 +540,7 @@ export async function verify(firestore, admin) {
     publicCommentsWithIdentity: 0,
     recordsWithoutOwnershipRecord: 0,
     mappingConflicts: 0,
+    malformedMappings: 0,
     identifyingBambooNotifications: 0,
     unresolvedOwnership: 0,
     staleUnresolvedRecords: 0,
@@ -526,8 +552,16 @@ export async function verify(firestore, admin) {
   const unresolved = new Set(
     (await firestore.collection(UNRESOLVED_COLLECTION).get()).docs.map((d) => d.id)
   );
-  const checkOwnership = (mappingSnap, unresolvedKey, publicData) => {
+  const checkOwnership = (mappingSnap, unresolvedKey, publicData, expected) => {
     const owner = mappingSnap.exists ? clean(mappingSnap.get("ownerUid")) : "";
+    if (mappingSnap.exists && (
+      !owner ||
+      (clean(mappingSnap.get("postId")) && clean(mappingSnap.get("postId")) !== expected.postId) ||
+      (expected.commentId && clean(mappingSnap.get("commentId")) && clean(mappingSnap.get("commentId")) !== expected.commentId)
+    )) {
+      out.malformedMappings += 1;
+      return;
+    }
     if (owner) {
       if (clean(publicData.authorId) && clean(publicData.authorId) !== owner) out.mappingConflicts += 1;
       if (unresolved.has(unresolvedKey)) out.staleUnresolvedRecords += 1;
@@ -555,7 +589,8 @@ export async function verify(firestore, admin) {
       checkOwnership(
         await firestore.collection(root.postOwners).doc(post.id).get(),
         unresolvedDocId(root.posts, post.id),
-        pd
+        pd,
+        { postId: post.id }
       );
       const comments = await post.ref.collection("comments").get();
       for (const c of comments.docs) {
@@ -567,7 +602,8 @@ export async function verify(firestore, admin) {
         checkOwnership(
           await firestore.collection(root.commentOwners).doc(key).get(),
           unresolvedDocId(root.posts, post.id, c.id),
-          cd
+          cd,
+          { postId: post.id, commentId: c.id }
         );
       }
     }
@@ -596,7 +632,8 @@ export async function verify(firestore, admin) {
   }
   const violations =
     out.publicPostsWithIdentity + out.publicCommentsWithIdentity +
-    out.recordsWithoutOwnershipRecord + out.mappingConflicts + out.identifyingBambooNotifications;
+    out.recordsWithoutOwnershipRecord + out.mappingConflicts + out.malformedMappings +
+    out.identifyingBambooNotifications;
   return { ...out, violations };
 }
 
@@ -642,7 +679,13 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
     if (ctx.limitReached) break;
     roots[root.posts] = await migrateRoot(ctx, root, checkpoint);
   }
-  const notifications = await migrateNotifications(ctx);
+  // 범위를 좁힌 canary(--only-post / --limit) 는 알림을 고치지 않는다 — 집계만 한다.
+  const canary = Boolean(options.onlyPost) || Number.isFinite(options.limit);
+  const notifications = await migrateNotifications({
+    ...ctx,
+    options: { ...options, apply: options.apply && !canary },
+  });
+  if (canary && options.apply) notifications.deferredUntilFullRun = true;
 
   if (options.anomalyIdsOut) {
     writeFileSync(options.anomalyIdsOut, ["# P0-3 anomalies (paths only, no UIDs)", ...anomalies, ""].join("\n"), "utf8");
@@ -664,7 +707,8 @@ if (invokedDirectly) {
   main().then(
     (code) => { process.exitCode = code; },
     (error) => {
-      console.error(String(error?.message ?? error));
+      // Firestore 오류 메시지에는 users/{uid}/... 경로가 들어갈 수 있다.
+      console.error(String(error?.message ?? error).replace(/users\/[^/\s]+/g, "users/<redacted>"));
       process.exitCode = 1;
     }
   );
