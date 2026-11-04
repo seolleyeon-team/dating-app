@@ -209,6 +209,7 @@ import {
   assertNotBlockedEitherWay,
   respondTeamInviteCore,
 } from "./eventTeamMembership";
+import { ensureMutualMatch, isBlockedEitherWay } from "./mutualMatchCreation";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -4398,11 +4399,28 @@ export const onInteractionCreated = onDocumentCreated(
     }
 
     // -----------------------------------------------------------------------
-    // 프로필 좋아요 알림: 상대방에게 인앱 알림(idempotent) + 푸시
+    // P1-1: a block in either direction ends the interaction here — no
+    // notification and no match, whatever the client wrote.
     // -----------------------------------------------------------------------
-    if (fromUserId !== toUserId && fromPartition === "production") {
+    if (fromUserId === toUserId) return;
+    if (await isBlockedEitherWay(db, fromUserId, toUserId)) {
+      logger.info("Interaction between blocked users ignored", {
+        interactionId: event.params.interactionId,
+      });
+      return;
+    }
+
+    // -----------------------------------------------------------------------
+    // 프로필 좋아요 알림: 상대방에게 인앱 알림(idempotent) + 푸시
+    //
+    // P1-1: idempotency is per PAIR, not per interaction document. A client
+    // can create any number of interaction documents for the same pair, and a
+    // trigger event can be redelivered; neither may notify the recipient
+    // again. The first like from A to B is the only one that notifies.
+    // -----------------------------------------------------------------------
+    if (fromPartition === "production") {
       const interactionId = event.params.interactionId;
-      const notificationId = `like_${interactionId}`;
+      const notificationId = `like_${fromUserId}_${toUserId}`;
 
       const actorInfo = await getUserDisplayInfo(fromUserId);
       const title = "새로운 관심이 도착했어요";
@@ -4423,119 +4441,70 @@ export const onInteractionCreated = onDocumentCreated(
       );
 
       if (created) {
-        await sendPushToUsers([toUserId], {
-          title,
-          body,
-          data: {
-            type: "profile_like",
-            notificationId,
-            deepLinkType: "received_like",
-            actorUserId: fromUserId,
-            sourceDocId: interactionId,
+        // The dispatch log is a second, independent gate: even if the in-app
+        // notification is ever removed, the push for this pair goes out once.
+        const pushed = await sendPushOnce(
+          [toUserId],
+          {
+            title,
+            body,
+            data: {
+              type: "profile_like",
+              notificationId,
+              deepLinkType: "received_like",
+              actorUserId: fromUserId,
+              sourceDocId: interactionId,
+            },
           },
-        });
+          buildNotificationIdempotencyKey(["profile_like", fromUserId, toUserId])
+        );
 
-        logger.info("Profile like push + in-app notification sent", {
+        logger.info("Profile like in-app notification created", {
           fromUserId,
           toUserId,
           action,
           notificationId,
+          pushed,
         });
       }
     }
 
     // -----------------------------------------------------------------------
-    // 기존 mutual like 체크 → 매치 생성
+    // 상호 좋아요 → 매치 생성 (P1-1: one transactional authority, see
+    // mutualMatchCreation.ts). The reverse like, the canonical and legacy
+    // match documents, both block directions and the direct room are all read
+    // inside the transaction, so two simultaneous mutual likes, a redelivered
+    // event or a concurrent block cannot produce a second match, a duplicate
+    // system message or a reopened room.
     // -----------------------------------------------------------------------
-    const reverseQuery = await db
-      .collection("interactions")
-      .where("fromUserId", "==", toUserId)
-      .where("toUserId", "==", fromUserId)
-      .where("action", "in", ["like", "super_like"])
-      .limit(1)
-      .get();
-
-    if (reverseQuery.empty) return;
-
-    const existingMatches = await db
-      .collection("matches")
-      .where("userIds", "array-contains", fromUserId)
-      .get();
-
-    for (const doc of existingMatches.docs) {
-      const ids = (doc.data().userIds || []) as string[];
-      if (ids.includes(toUserId)) {
-        logger.info("Match already exists", { matchId: doc.id });
-        return;
-      }
-    }
-
-    const roomId = buildDirectRoomId(fromUserId, toUserId);
-    const matchRef = db.collection("matches").doc();
-    const roomRef = db.collection("chat_rooms").doc(roomId);
-
     const [userA, userB] = await Promise.all([
       getUserDisplayInfo(fromUserId),
       getUserDisplayInfo(toUserId),
     ]);
 
-    const participantInfo = {
-      [fromUserId]: {
-        nickname: userA.nickname,
-        avatarUrl: userA.avatarUrl,
-      },
-      [toUserId]: {
-        nickname: userB.nickname,
-        avatarUrl: userB.avatarUrl,
-      },
-    };
-
-    const batch = db.batch();
-
-    batch.set(matchRef, {
-      userIds: [fromUserId, toUserId],
+    const result = await ensureMutualMatch(db, {
+      userA: fromUserId,
+      userB: toUserId,
       matchType: "mutual_like",
-      matchedAt: FieldValue.serverTimestamp(),
-      status: "active",
-      chatRoomId: roomId,
       dataPartition: fromPartition,
-    });
-
-    batch.set(
-      roomRef,
-      {
-        roomId,
-        type: "one_to_one",
-        status: "active",
-        participantIds: [fromUserId, toUserId],
-        participantInfo,
-        matchId: matchRef.id,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        lastMessage: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
-        lastMessageAt: FieldValue.serverTimestamp(),
-        dataPartition: fromPartition,
+      reverseLikeSource: "interactions",
+      chatRoom: {
+        participantInfo: {
+          [fromUserId]: { nickname: userA.nickname, avatarUrl: userA.avatarUrl },
+          [toUserId]: { nickname: userB.nickname, avatarUrl: userB.avatarUrl },
+        },
+        systemMessage: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
       },
-      { merge: true }
-    );
-
-    const msgRef = roomRef.collection("messages").doc();
-    batch.set(msgRef, {
-      senderId: "system",
-      text: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
-      content: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
-      type: "system",
-      createdAt: FieldValue.serverTimestamp(),
-      dataPartition: fromPartition,
     });
 
-    await batch.commit();
-
-    logger.info("Match created", {
-      matchId: matchRef.id,
-      roomId,
-      fromUserId,
-      toUserId,
+    if (result.outcome === "no_reverse_like") return;
+    logger.info("Mutual match evaluated", {
+      interactionId: event.params.interactionId,
+      outcome: result.outcome,
+      matchId: result.matchId,
+      roomId: result.roomId,
+      created: result.created,
+      roomCreated: result.roomCreated,
     });
   }
 );
@@ -6603,49 +6572,33 @@ async function checkAndCreateRecMatch(
   userB: string,
   matchType: string
 ): Promise<string | null> {
-  const reverseQuery = await db
-    .collectionGroup("events")
-    .where("userId", "==", userB)
-    .where("targetUserId", "==", userA)
-    .where("eventType", "in", ["like", "swipe_right"])
-    .limit(1)
-    .get();
+  // P1-1: same transactional authority as the interactions trigger. The
+  // recEvents path never created a chat room; it still does not, and the
+  // interactions trigger attaches the room to this match when the pair also
+  // likes through `interactions` (a room-less active match is upgraded, a
+  // second match is never created).
+  const result = await ensureMutualMatch(db, {
+    userA,
+    userB,
+    matchType,
+    dataPartition: "production",
+    reverseLikeSource: "recEvents",
+  });
 
-  if (reverseQuery.empty) {
+  if (result.outcome === "no_reverse_like") {
     logger.info("No mutual like found", { userA, userB });
     return null;
   }
-
-  const existingMatches = await db
-    .collection("matches")
-    .where("userIds", "array-contains", userA)
-    .get();
-
-  for (const doc of existingMatches.docs) {
-    const raw = (doc.data() as Record<string, unknown>).userIds;
-    const ids = Array.isArray(raw)
-      ? raw.map((v) => asString(v)).filter((v) => v.length > 0)
-      : [];
-    if (ids.includes(userB)) {
-      logger.info("Match already exists", { matchId: doc.id });
-      return doc.id;
-    }
+  if (result.outcome === "blocked") {
+    logger.info("Rec match skipped: blocked", { userA, userB });
+    return null;
   }
-
-  const matchRef = await db.collection("matches").add({
-    userIds: [userA, userB],
-    matchType,
-    matchedAt: FieldValue.serverTimestamp(),
-    status: "active",
-    chatRoomId: null,
-  });
-
-  logger.info("Rec match created", {
-    matchId: matchRef.id,
+  logger.info("Rec match evaluated", {
+    matchId: result.matchId,
+    outcome: result.outcome,
     userA,
     userB,
     matchType,
   });
-
-  return matchRef.id;
+  return result.matchId;
 }
