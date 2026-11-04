@@ -139,15 +139,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   /// (내 글인가, 내가 쓴 댓글 id) — 각각 매핑 쿼리 1번.
   Future<(bool, Set<String>)> _loadOwnership() async {
-    try {
-      final results = await Future.wait([
-        _repository.fetchMyPostIds([widget.postId]),
-        _repository.fetchMyCommentIds(widget.postId),
-      ]);
-      return (results[0].contains(widget.postId), results[1]);
-    } catch (_) {
-      return (false, const <String>{});
-    }
+    // 두 조회는 서로 독립이다. 한쪽이 실패해도 다른 쪽 결과는 쓴다 (예전에는
+    // 글 소유 조회 실패가 내 댓글 표시까지 지웠다).
+    final results = await Future.wait([
+      _repository
+          .fetchMyPostIds([widget.postId])
+          .then((ids) => ids.contains(widget.postId))
+          .catchError((_) => false),
+      _repository
+          .fetchMyCommentIds(widget.postId)
+          .catchError((_) => const <String>{}),
+    ]);
+    return (results[0] as bool, results[1] as Set<String>);
   }
 
   Future<void> _refreshDetail() async {

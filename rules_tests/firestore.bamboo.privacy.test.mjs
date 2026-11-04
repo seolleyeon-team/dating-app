@@ -371,3 +371,56 @@ test("ATTACK 9 (전환기 레거시 문서): authorId 가 남아 있던 글에�
   await assertFails(updateDoc(post, { commentCount: increment(-1), score7d: increment(-1), updatedAt: now() }));
   await assertFails(updateDoc(post, { commentCount: increment(-1), updatedAt: now() }));
 });
+
+test("Phase 0A: 소유자 미확정 기록은 어떤 클라이언트도 읽거나 쓸 수 없다", async () => {
+  const env = await getTestEnv();
+  await env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), "bamboo_ownership_unresolved", "bamboo_posts__legacy"), {
+      root: "bamboo_posts", postId: "legacy", legacyAuthorClaim: A,
+    })
+  );
+  for (const uid of [A, B]) {
+    const db = await kakaoSession(uid);
+    await assertFails(getDoc(doc(db, "bamboo_ownership_unresolved", "bamboo_posts__legacy")));
+    await assertFails(getDocs(collection(db, "bamboo_ownership_unresolved")));
+    await assertFails(setDoc(doc(db, "bamboo_ownership_unresolved", "x"), { postId: "x" }));
+  }
+});
+
+test("ATTACK 9 (리뷰 M1): 좋아요 생성+카운터 → 좋아요만 삭제를 반복해 카운터를 부풀릴 수 없다", async () => {
+  const c = await kakaoSession(C);
+  const like = writeBatch(c);
+  like.set(doc(c, "bamboo_posts", POST, "likes", C), { userId: C, createdAt: now() });
+  like.update(doc(c, "bamboo_posts", POST), { likeCount: increment(1), score7d: increment(1), updatedAt: now() });
+  await assertSucceeds(like.commit());
+  // 카운터를 되돌리지 않고 좋아요 문서만 지우는 것은 거부
+  await assertFails(deleteDoc(doc(c, "bamboo_posts", POST, "likes", C)));
+  // 카운터 없이 좋아요 문서만 만드는 것도 거부
+  await assertFails(setDoc(doc(c, "bamboo_posts", POST, "comments", COMMENT, "likes", C), { userId: C, createdAt: now() }));
+  const commentLike = writeBatch(c);
+  commentLike.set(doc(c, "bamboo_posts", POST, "comments", COMMENT, "likes", C), { userId: C, createdAt: now() });
+  commentLike.update(doc(c, "bamboo_posts", POST, "comments", COMMENT), { likeCount: increment(1), updatedAt: now() });
+  await assertSucceeds(commentLike.commit());
+  await assertFails(deleteDoc(doc(c, "bamboo_posts", POST, "comments", COMMENT, "likes", C)));
+});
+
+test("리뷰 L6: 카운터 변화 없이 updatedAt 만 바꿀 수 없다", async () => {
+  const b = await kakaoSession(B);
+  await assertFails(updateDoc(doc(b, "bamboo_posts", POST), { updatedAt: now() }));
+  await assertFails(updateDoc(doc(b, "bamboo_posts", POST, "comments", COMMENT), { updatedAt: now() }));
+});
+
+test("리뷰 H1: 앱의 '내 글' 쿼리 모양(ownerUid == 나 + postId in 섞인 페이지)은 허용되고 내 것만 돌려준다", async () => {
+  const env = await getTestEnv();
+  await env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), "bamboo_post_authors", "postB"), { postId: "postB", ownerUid: B, createdAt: now() })
+  );
+  const a = await kakaoSession(A);
+  const mixed = await assertSucceeds(getDocs(query(
+    collection(a, "bamboo_post_authors"), where("ownerUid", "==", A), where("postId", "in", [POST, "postB", "missing"]))));
+  assert.deepEqual(mixed.docs.map((d) => d.id), [POST]);
+  // 문서 id(__name__) in 쿼리는 문서마다 get 으로 평가돼 남의/없는 매핑이 섞이면 전체가 거부된다 — 쓰지 않는다.
+  const { documentId } = await import("firebase/firestore");
+  await assertFails(getDocs(query(
+    collection(a, "bamboo_post_authors"), where("ownerUid", "==", A), where(documentId(), "in", [POST, "postB"]))));
+});

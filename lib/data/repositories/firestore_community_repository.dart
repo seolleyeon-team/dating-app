@@ -242,10 +242,13 @@ class FirestoreCommunityRepository implements CommunityRepository {
         i + _whereInLimit > ids.length ? ids.length : i + _whereInLimit,
       );
       // 규칙은 ownerUid == 본인 조건이 있는 쿼리만 허용한다. 남의 매핑은
-      // 결과에도, 오류에도 나타나지 않는다.
+      // 결과에도, 오류에도 나타나지 않는다. 문서 id(__name__) in 쿼리는 쓰지
+      // 않는다: 규칙이 그 id 들을 문서마다 get 으로 평가해, 페이지에 남의 글이나
+      // 매핑 없는 글이 하나라도 섞이면 쿼리 전체가 거부된다. 모든 매핑 문서는
+      // postId 필드를 가진다 (서버 writer · Phase A · P0-3 마이그레이션).
       final snap = await _postAuthors
           .where('ownerUid', isEqualTo: uid)
-          .where(FieldPath.documentId, whereIn: chunk)
+          .where('postId', whereIn: chunk)
           .get();
       mine.addAll(snap.docs.map((d) => d.id));
     }

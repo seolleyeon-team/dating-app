@@ -50,6 +50,7 @@ class _FakeRepo implements CommunityRepository {
 }
 
 void main() {
+  _accountSwitchDuringOwnershipLookup();
   test('isMine 은 매핑 조회 결과로만 정해진다 (모델에는 작성자가 없다)', () async {
     var who = 'alice';
     final repo = _FakeRepo(() => who)
@@ -122,4 +123,31 @@ class _SlowRepo extends _FakeRepo {
       hasMore: false,
     );
   }
+}
+
+class _SwitchDuringOwnershipRepo extends _FakeRepo {
+  _SwitchDuringOwnershipRepo(super.uid, {required this.onOwnership});
+  final void Function() onOwnership;
+
+  @override
+  Future<Set<String>> fetchMyPostIds(Iterable<String> postIds) async {
+    // A 의 소유 조회가 끝나기 전에 B 로 전환된다.
+    final mine = await super.fetchMyPostIds(postIds);
+    onOwnership();
+    return mine;
+  }
+}
+
+void _accountSwitchDuringOwnershipLookup() {
+  test('리뷰 L4: 소유 조회 도중 계정이 바뀌면 이전 계정의 목록·내 글 표시를 넣지 않는다', () async {
+    var who = 'alice';
+    final repo =
+        _SwitchDuringOwnershipRepo(() => who, onOwnership: () => who = 'bob')
+          ..feedByUid['*'] = ['p1']
+          ..ownedByUid['alice'] = {'p1'};
+    final provider = CommunityProvider(repository: repo, currentUid: () => who);
+    await provider.loadPosts(tab: '전체', forceRefresh: true);
+    expect(provider.isMine('p1'), isFalse);
+    expect(provider.postsOf('전체'), isEmpty);
+  });
 }

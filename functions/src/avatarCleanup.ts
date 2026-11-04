@@ -100,6 +100,8 @@ export type AccountDeletionDocs = {
   verifiedPhoneHash: string | null;
   deviceTokenIds: string[];
   notificationIds: string[];
+  /** P0-3: users/{uid}/bambooHiddenContent — what this user reported in Bamboo. */
+  bambooHiddenContentIds?: string[];
   contactBlockedHashIds: string[];
   blockTargetIds: string[];
   reverseBlockViewerUids: string[];
@@ -163,6 +165,7 @@ export type CleanupOperation =
   | { kind: "deleteVerifiedPhoneHashIndexOwner"; phoneHash: string }
   | { kind: "deleteDeviceToken"; tokenId: string }
   | { kind: "deleteNotification"; notificationId: string }
+  | { kind: "deleteBambooHiddenContent"; key: string }
   | { kind: "deleteContactBlockedHash"; phoneHash: string }
   | { kind: "deleteContactBlockedHashIndexOwner"; phoneHash: string }
   | { kind: "deleteBlockTarget"; targetUid: string }
@@ -407,6 +410,7 @@ export function accountDeletionDocsFromParts(
     verifiedPhoneHash: parts.verifiedPhoneHash ?? null,
     deviceTokenIds: parts.deviceTokenIds ?? [],
     notificationIds: parts.notificationIds ?? [],
+    bambooHiddenContentIds: parts.bambooHiddenContentIds ?? [],
     contactBlockedHashIds: parts.contactBlockedHashIds ?? [],
     blockTargetIds: parts.blockTargetIds ?? [],
     reverseBlockViewerUids: parts.reverseBlockViewerUids ?? [],
@@ -434,6 +438,11 @@ export function planAccountDeletionPiiOperations(params: {
   }
   for (const notificationId of docs.notificationIds) {
     operations.push({ kind: "deleteNotification", notificationId });
+  }
+  // Deleting users/{uid} does not delete its subcollections; without this the
+  // deleted account's uid stayed linked to the Bamboo content it reported.
+  for (const key of docs.bambooHiddenContentIds ?? []) {
+    operations.push({ kind: "deleteBambooHiddenContent", key });
   }
   for (const phoneHash of docs.contactBlockedHashIds) {
     operations.push({ kind: "deleteContactBlockedHash", phoneHash });
@@ -743,6 +752,7 @@ export async function loadAccountDeletionDocs(
     verificationSnap,
     deviceTokensSnap,
     notificationsSnap,
+    bambooHiddenContentSnap,
     contactBlockedHashesSnap,
     blockTargetsSnap,
     recommendationExclusionTargetsSnap,
@@ -755,6 +765,7 @@ export async function loadAccountDeletionDocs(
     firestore.collection("userPrivateVerifications").doc(safeUid).get(),
     firestore.collection("users").doc(safeUid).collection("deviceTokens").get(),
     firestore.collection("users").doc(safeUid).collection("notifications").get(),
+    firestore.collection("users").doc(safeUid).collection("bambooHiddenContent").get(),
     firestore
       .collection("users")
       .doc(safeUid)
@@ -843,6 +854,7 @@ export async function loadAccountDeletionDocs(
     verifiedPhoneHash: asString(verificationSnap.data()?.phoneHash) || null,
     deviceTokenIds: deviceTokensSnap.docs.map((doc) => doc.id),
     notificationIds: notificationsSnap.docs.map((doc) => doc.id),
+    bambooHiddenContentIds: bambooHiddenContentSnap.docs.map((doc) => doc.id),
     contactBlockedHashIds: contactBlockedHashesSnap.docs.map((doc) => doc.id),
     blockTargetIds: blockTargetsSnap.docs.map((doc) => doc.id),
     reverseBlockViewerUids,
@@ -1123,6 +1135,16 @@ export function createAvatarCleanupFirestoreExecutor(
             .doc(uid)
             .collection("deviceTokens")
             .doc(tokenId)
+            .delete();
+          return;
+        }
+        case "deleteBambooHiddenContent": {
+          const key = requirePathSegment(operation.key, "bambooHiddenContentKey");
+          await firestore
+            .collection("users")
+            .doc(uid)
+            .collection("bambooHiddenContent")
+            .doc(key)
             .delete();
           return;
         }

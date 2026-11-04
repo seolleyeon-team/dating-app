@@ -256,8 +256,8 @@ test("Google Play review Bamboo Forest has a separate root and review-only gate"
     "match /playReviewBambooPosts/{postId} { allow get, list: if isPlayReviewSession();"
   );
   assertContains(
-    "review post creation requires the review partition marker",
-    "request.resource.data.dataPartition == 'play_review';"
+    "review like creation requires the review partition marker",
+    "request.resource.data.dataPartition == 'play_review' && likeParentMoves(reviewBambooPostPath(postId), 1);"
   );
   assertContains(
     "review Bamboo ownership maps cannot be read by ordinary sessions",

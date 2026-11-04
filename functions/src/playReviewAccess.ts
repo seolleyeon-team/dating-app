@@ -491,6 +491,13 @@ async function resetReviewArtifacts(firestore: Firestore): Promise<void> {
   await deleteValidatedReviewDocs(firestore, rooms.docs, "participantIds");
   await deleteValidatedReviewDocs(firestore, reports.docs);
   await resetReviewBambooArtifacts(firestore);
+  // Seed post/comment ids are fixed, so a reviewer's earlier report would hide
+  // them in every later session (P0-3 report → hide).
+  await deleteRefsInBatches(
+    firestore,
+    (await firestore.collection("users").doc(PLAY_REVIEWER_UID)
+      .collection("bambooHiddenContent").get()).docs.map((doc) => doc.ref),
+  );
   await resetReviewDirectChatHeartTransactions(firestore);
 
   const exactDeletes = [

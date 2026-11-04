@@ -209,6 +209,22 @@ service cloud.firestore {
         );
     }
 
+    // P0-3 review M1: a like document may only appear or disappear together
+    // with the matching ±1 on its parent's likeCount. Without this a user could
+    // repeat (create like + likeCount+1) then (delete like alone) and inflate
+    // likeCount/score7d without bound.
+    function likeParentMoves(parentPath, delta) {
+      return getAfter(parentPath).data.likeCount == get(parentPath).data.likeCount + delta;
+    }
+
+    function prodBambooPostPath(postId) {
+      return /databases/$(database)/documents/bamboo_posts/$(postId);
+    }
+
+    function prodBambooCommentPath(postId, commentId) {
+      return /databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId);
+    }
+
     function bambooCommentCounterUpdateOk() {
       return intFieldUnchangedOrDeltaOne('likeCount') &&
         nonNegativeIntField('likeCount');
@@ -2016,6 +2032,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'likeCount', 'score7d', 'updatedAt'
         ]) &&
+        bambooFieldChanged('likeCount') &&
         bambooPostCounterUpdateOk() &&
         bambooLikeCountBound(postId) &&
         bambooScore7dMovesWithCounters();
@@ -2027,9 +2044,11 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow create: if
           isSelf(userId) && !isPlayReviewSession() &&
           request.resource.data.keys().hasOnly(['userId', 'createdAt']) &&
-          request.resource.data.userId == request.auth.uid;
+          request.resource.data.userId == request.auth.uid &&
+          likeParentMoves(prodBambooPostPath(postId), 1);
 
-        allow delete: if isSelf(userId) && !isPlayReviewSession();
+        allow delete: if isSelf(userId) && !isPlayReviewSession() &&
+          likeParentMoves(prodBambooPostPath(postId), -1);
         allow update: if false;
       }
 
@@ -2042,6 +2061,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'likeCount', 'updatedAt'
           ]) &&
+          bambooFieldChanged('likeCount') &&
           bambooCommentCounterUpdateOk() &&
           bambooCommentLikeCountBound(postId, commentId);
 
@@ -2052,9 +2072,11 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           allow create: if
             isSelf(userId) && !isPlayReviewSession() &&
             request.resource.data.keys().hasOnly(['userId', 'createdAt']) &&
-            request.resource.data.userId == request.auth.uid;
+            request.resource.data.userId == request.auth.uid &&
+            likeParentMoves(prodBambooCommentPath(postId, commentId), 1);
 
-          allow delete: if isSelf(userId) && !isPlayReviewSession();
+          allow delete: if isSelf(userId) && !isPlayReviewSession() &&
+            likeParentMoves(prodBambooCommentPath(postId, commentId), -1);
           allow update: if false;
         }
       }
@@ -2082,6 +2104,13 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow create, update, delete: if false;
     }
 
+    // P0-3 Phase 0A: historical posts/comments whose author could not be
+    // proven (e.g. the 2026-05-19 bulk import) keep no owner; the legacy
+    // claim is kept here for operators only. No client access of any kind.
+    match /bamboo_ownership_unresolved/{recordId} {
+      allow read, write: if false;
+    }
+
     // -----------------------------------------------------------------------
     // Google Play review Bamboo Forest
     // -----------------------------------------------------------------------
@@ -2101,6 +2130,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'likeCount', 'score7d', 'updatedAt'
         ]) &&
+        bambooFieldChanged('likeCount') &&
         bambooPostCounterUpdateOk() &&
         reviewBambooLikeCountBound(postId) &&
         bambooScore7dMovesWithCounters();
@@ -2115,8 +2145,10 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           ]) &&
           request.resource.data.userId == request.auth.uid &&
           request.resource.data.createdAt is timestamp &&
-          request.resource.data.dataPartition == 'play_review';
-        allow delete: if isPlayReviewSession() && isSelf(userId);
+          request.resource.data.dataPartition == 'play_review' &&
+          likeParentMoves(reviewBambooPostPath(postId), 1);
+        allow delete: if isPlayReviewSession() && isSelf(userId) &&
+          likeParentMoves(reviewBambooPostPath(postId), -1);
         allow update: if false;
       }
 
@@ -2131,6 +2163,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'likeCount', 'updatedAt'
           ]) &&
+          bambooFieldChanged('likeCount') &&
           bambooCommentCounterUpdateOk() &&
           reviewBambooCommentLikeCountBound(postId, commentId);
 
@@ -2144,8 +2177,10 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             ]) &&
             request.resource.data.userId == request.auth.uid &&
             request.resource.data.createdAt is timestamp &&
-            request.resource.data.dataPartition == 'play_review';
-          allow delete: if isPlayReviewSession() && isSelf(userId);
+            request.resource.data.dataPartition == 'play_review' &&
+            likeParentMoves(reviewBambooCommentPath(postId, commentId), 1);
+          allow delete: if isPlayReviewSession() && isSelf(userId) &&
+            likeParentMoves(reviewBambooCommentPath(postId, commentId), -1);
           allow update: if false;
         }
       }

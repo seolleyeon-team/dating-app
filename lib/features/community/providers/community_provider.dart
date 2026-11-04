@@ -117,22 +117,20 @@ class CommunityProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _rememberOwnership(String tab, List<PostModel> page) async {
-    if (page.isEmpty) return;
-    if (tab == myPostsTab) {
-      _myPostIds.addAll(page.map((p) => p.postId));
-      return;
-    }
+  /// 이 페이지에서 내가 쓴 글 id. 상태에 넣지 않고 돌려준다 — 호출부가 계정이
+  /// 그대로인지 다시 확인한 뒤에만 반영한다.
+  Future<Set<String>> _ownedIn(String tab, List<PostModel> page) async {
+    if (page.isEmpty) return const {};
+    if (tab == myPostsTab) return page.map((p) => p.postId).toSet();
     try {
-      _myPostIds.addAll(
-        await _repository.fetchMyPostIds(page.map((p) => p.postId)),
-      );
+      return await _repository.fetchMyPostIds(page.map((p) => p.postId));
     } catch (e) {
       // 조회 실패 시 "내 글" 표시만 빠진다 (삭제 대신 신고 버튼). 권한 경계는
       // 서버 callable 이 다시 확인한다.
       debugPrint(
         'CommunityProvider ownership lookup error: ${PrivacyLogUtils.errorSummary(e)}',
       );
+      return const {};
     }
   }
 
@@ -157,9 +155,10 @@ class CommunityProvider extends ChangeNotifier {
 
     try {
       final page = await _repository.fetchPostsPage(tab: tab, limit: 5);
-      // 응답을 기다리는 사이 계정이 바뀌었으면 결과를 버린다.
-      if (_currentUid() != uidAtStart) return;
-      await _rememberOwnership(tab, page.posts);
+      final owned = await _ownedIn(tab, page.posts);
+      // 응답을 기다리는 사이(목록·소유 조회 모두) 계정이 바뀌었으면 결과를 버린다.
+      if (_currentUid() != uidAtStart || _sessionUid != uidAtStart) return;
+      _myPostIds.addAll(owned);
 
       _postsByTab[tab] = page.posts;
       _cursorByTab[tab] = page.cursor;
@@ -198,8 +197,9 @@ class CommunityProvider extends ChangeNotifier {
         limit: 5,
         cursor: cursor,
       );
-      if (_currentUid() != uidAtStart) return;
-      await _rememberOwnership(targetTab, page.posts);
+      final owned = await _ownedIn(targetTab, page.posts);
+      if (_currentUid() != uidAtStart || _sessionUid != uidAtStart) return;
+      _myPostIds.addAll(owned);
 
       final seen = {for (final p in _postsByTab[targetTab] ?? []) p.postId};
       _postsByTab[targetTab] = [
