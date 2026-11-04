@@ -14,8 +14,10 @@
  *  D. 탐색 중인 미팅이 있으면 matching tick 은 새 3:3 을 만들지 않고, 탐색이
  *     끝나면 다시 만든다 (먼저 신청한 후보가 새 방으로 빠지지 않게).
  *  E. 성별·날짜가 맞지 않는 후보로는 채우지 않는다.
- *  E–G. (NEW-19) 다른 경로로 취소된 미팅의 탐색 정리, fill/기한 취소 race, 환불 대상 tx 내 확정.
+ *  (테스트 E–G, NEW-19) 다른 경로로 취소된 미팅의 탐색 정리, fill/기한 취소 race, 환불 대상 tx 내 확정.
  *  H. (NEW-19) 이미 시작·종료된 미팅의 탐색은 채우지도 취소하지도 않고 닫는다.
+ *  I–K. (NEW-19 리뷰) 체크인이 열린 당일 미팅, 열린 자리 없이 남은 플래그, app 형식 status 만
+ *     가진 문서 — 모두 취소·환불 없이 탐색만 닫는다.
  *
  * 실행 (repo root, JDK 21):
  *   npx tsc -p functions --outDir functions/.p02-lib
@@ -413,4 +415,66 @@ test("H: a search still open when the meeting has already started or finished ne
       assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${c.status}/${uid}: no refund`);
     }
   }
+});
+
+test("I: on meeting day (checkin_open, members already stamped in) the deadline does not cancel the meeting — the search is closed", async () => {
+  const dateKey = dateKeyInWindow(12);
+  const { meetingId, males, females } = await matchMeeting(dateKey);
+  const leaver = males[0];
+  await leaveBlindMeeting({ meetingId, userId: leaver });
+  // The meeting cannot start while a listed seat has not checked in, so it stays in checkin_open.
+  await db.collection("blindMeetings").doc(meetingId).set({
+    serverStatus: "checkin_open",
+    status: "checkinOpen",
+    replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() - 1_000),
+  }, { merge: true });
+  const attended = females[0];
+  await db.collection("blindMeetings").doc(meetingId).collection("participants").doc(attended).set({ serverStatus: "attended", status: "attended" }, { merge: true });
+  const newcomer = `${tagOf()}_m_day`;
+  await seedApplicant({ userId: newcomer, gender: "male" }, [dateKey]);
+
+  await processBlindMeetingReplacementSearches();
+
+  const meeting = await meetingData(meetingId);
+  assert.equal(meeting.serverStatus, "checkin_open", "a meeting under way is not cancelled");
+  assert.equal(meeting.replacementSearchActive, false);
+  assert.ok(!(meeting.participantIds as string[]).includes(newcomer));
+  const room = (await (await roomOf(meetingId)).get()).data() ?? {};
+  assert.notEqual(room.status, "archived");
+  assert.equal((await participantData(meetingId, attended)).serverStatus, "attended");
+  for (const uid of [...males, ...females].filter((u) => u !== leaver)) {
+    assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${uid}: no refund`);
+  }
+});
+
+test("J: a flag left on with no seat actually open does not let the deadline cancel a full meeting", async () => {
+  const { meetingId, males, females } = await matchMeeting(dateKeyInWindow(13));
+  // e.g. two fills each committed a different seat from stale plans.
+  await db.collection("blindMeetings").doc(meetingId).set({
+    replacementSearchActive: true,
+    replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() - 1_000),
+  }, { merge: true });
+  await processBlindMeetingReplacementSearches();
+  const meeting = await meetingData(meetingId);
+  assert.notEqual(meeting.serverStatus, "cancelled");
+  assert.equal(meeting.replacementSearchActive, false);
+  for (const uid of [...males, ...females]) {
+    assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${uid}: no refund`);
+  }
+});
+
+test("K: a meeting document carrying only the app-format status is judged by it (no fail-open)", async () => {
+  const { meetingId, males } = await matchMeeting(dateKeyInWindow(14));
+  await leaveBlindMeeting({ meetingId, userId: males[0] });
+  const { FieldValue } = await import("firebase-admin/firestore");
+  await db.collection("blindMeetings").doc(meetingId).set({
+    serverStatus: FieldValue.delete(),
+    status: "inProgress",
+    replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() - 1_000),
+  }, { merge: true });
+  await processBlindMeetingReplacementSearches();
+  const meeting = await meetingData(meetingId);
+  assert.equal(meeting.status, "inProgress", "not cancelled");
+  assert.equal(meeting.serverStatus, undefined);
+  assert.equal(meeting.replacementSearchActive, false);
 });

@@ -2,6 +2,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { HttpsError } from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
 
 import { loadCampusLifeZoneEnforced } from "../campusLifeZoneActivation";
 import { Candidate, checkGroupConstraints, groupCommonDateKeys } from "./matching";
@@ -18,6 +19,7 @@ import {
 } from "./store";
 import {
   BLIND_MEETING_COLLECTIONS,
+  MEETING_STATUS_TO_APP,
   PARTICIPANT_STATUS_TO_APP,
   asStrArray,
   formatDateKey,
@@ -161,28 +163,42 @@ export async function leaveBlindMeeting(params: { meetingId: string; userId: str
 }
 
 /**
- * A search on a meeting that was cancelled through another path, or that has
- * already started or finished, can neither fill nor cancel anything: it is
- * stale and only needs closing. leaveBlindMeeting accepts any confirmed member,
- * so a seat can open on the day while the lifecycle tick moves the meeting on.
+ * Meeting states in which a replacement may still be filled or the search
+ * may end in a cancellation. Any other state — cancelled through another
+ * path, check-in already open (members are stamping in on the day; the
+ * meeting can no longer start until every listed seat checks in, so it stays
+ * in checkin_open), started, finished, or an unrecognised value — makes the
+ * search stale: it is closed without filling or cancelling (fail closed).
+ * leaveBlindMeeting accepts any confirmed member, so a seat can open on the
+ * day while the lifecycle tick moves the meeting on.
  */
-const SEARCH_CLOSED_MEETING_STATUSES: ReadonlySet<string> = new Set([
-  "cancelled",
-  "in_progress",
-  "completed",
-  "followup_open",
-  "read_only",
-  "archived",
+const REPLACEABLE_MEETING_STATUSES: ReadonlySet<string> = new Set([
+  "awaiting_acceptance",
+  "confirmed",
+  "chat_open",
+  "schedule_confirmed",
 ]);
 
-function replacementSearchIsStale(serverStatus: unknown): boolean {
-  return SEARCH_CLOSED_MEETING_STATUSES.has(String(serverStatus ?? ""));
+const SERVER_STATUS_BY_APP_STATUS: ReadonlyMap<string, string> = new Map(
+  Object.entries(MEETING_STATUS_TO_APP).map(([server, app]) => [app, server])
+);
+
+/** serverStatus, or the app-format status mapped back (documents written by older code carry only one). */
+function meetingServerStatus(data: Record<string, unknown> | undefined): string {
+  const server = typeof data?.serverStatus === "string" ? data.serverStatus.trim() : "";
+  if (server) return server;
+  const app = typeof data?.status === "string" ? data.status.trim() : "";
+  return SERVER_STATUS_BY_APP_STATUS.get(app) ?? (app in MEETING_STATUS_TO_APP ? app : "");
+}
+
+function replacementSearchIsStale(data: Record<string, unknown> | undefined): boolean {
+  return !REPLACEABLE_MEETING_STATUSES.has(meetingServerStatus(data));
 }
 
 /** Finds FIFO eligible replacement units and commits every selected member atomically. */
 export async function fillBlindMeetingVacancies(meetingId: string): Promise<number> {
   const [meeting, policy, applications] = await Promise.all([loadMeeting(meetingId), loadPolicy(), loadAllOpenApplications()]);
-  if (!meeting.raw.replacementSearchActive || replacementSearchIsStale(meeting.status)) return 0;
+  if (!meeting.raw.replacementSearchActive || replacementSearchIsStale(meeting.raw)) return 0;
   const participantSnap = await db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId).collection(BLIND_MEETING_COLLECTIONS.participants).get();
   const vacancies: Vacancy[] = participantSnap.docs
     .filter((doc) => doc.data()?.replacementSearchActive === true && doc.data()?.serverStatus === "cancelled")
@@ -214,9 +230,12 @@ export async function fillBlindMeetingVacancies(meetingId: string): Promise<numb
     const meetingRef = db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId);
     const roomRef = db().collection("chat_rooms").doc(meeting.groupChatId!);
     const departedIds = [...selections.keys()];
-    const [freshMeeting, roomSnap, ...records] = await Promise.all([
+    const [freshMeeting, roomSnap, openSeats, ...records] = await Promise.all([
       tx.get(meetingRef),
       tx.get(roomRef),
+      // Seats still waiting for a replacement at commit time: another leave may
+      // have opened one, or another fill closed one, after this plan was made.
+      tx.get(meetingRef.collection(BLIND_MEETING_COLLECTIONS.participants).where("replacementSearchActive", "==", true)),
       ...departedIds.map((uid) => tx.get(meetingRef.collection(BLIND_MEETING_COLLECTIONS.participants).doc(uid))),
       ...[...selections.values()].map((candidate) => tx.get(db().collection(BLIND_MEETING_COLLECTIONS.applications).doc(candidate.userId))),
     ]);
@@ -231,7 +250,12 @@ export async function fillBlindMeetingVacancies(meetingId: string): Promise<numb
       return false;
     }
     const data = freshMeeting.data() ?? {};
-    if (data.replacementSearchActive !== true || replacementSearchIsStale(data.serverStatus)) return false;
+    if (data.replacementSearchActive !== true || replacementSearchIsStale(data)) return false;
+    // A concurrent fill replaced someone: the roster this plan was checked
+    // against is gone. The next tick replans.
+    if (asStrArray(data.participantIds).join("|") !== meeting.participantIds.join("|")) return false;
+    const stillOpen = openSeats.docs
+      .filter((doc) => doc.data()?.serverStatus === "cancelled" && !selections.has(doc.id));
     const nextIds = asStrArray(data.participantIds).map((uid) => selections.get(uid)?.userId ?? uid);
     const nextA = asStrArray(data.teamAUserIds).map((uid) => selections.get(uid)?.userId ?? uid);
     const nextB = asStrArray(data.teamBUserIds).map((uid) => selections.get(uid)?.userId ?? uid);
@@ -251,7 +275,7 @@ export async function fillBlindMeetingVacancies(meetingId: string): Promise<numb
       teamAUserIds: nextA,
       teamBUserIds: nextB,
       commonAvailableDateKeys: commonDates,
-      replacementSearchActive: remaining.length > 0,
+      replacementSearchActive: stillOpen.length > 0,
       ...(reschedule ? {
         status: "chatOpen",
         serverStatus: "chat_open",
@@ -293,19 +317,25 @@ export async function fillBlindMeetingVacancies(meetingId: string): Promise<numb
 export async function processBlindMeetingReplacementSearches(): Promise<void> {
   const snap = await db().collection(BLIND_MEETING_COLLECTIONS.meetings).where("replacementSearchActive", "==", true).get();
   for (const doc of snap.docs) {
-    // A meeting cancelled through another path (cancelMeeting: schedule
-    // window expired, five-person vote rejected, ops rematch) keeps the flag;
-    // left open it would defer ordinary matching in the matching tick forever.
-    // A meeting that already started or finished keeps it too.
-    if (replacementSearchIsStale(doc.data()?.serverStatus)) {
-      await closeStaleReplacementSearch(doc.id);
-      continue;
-    }
-    const deadline = doc.data()?.replacementSearchDeadlineAt;
-    if (deadline instanceof Timestamp && deadline.toMillis() <= Date.now()) {
-      await cancelReplacementFailedMeeting(doc.id);
-    } else {
-      await fillBlindMeetingVacancies(doc.id);
+    try {
+      // A meeting cancelled through another path (cancelMeeting: schedule
+      // window expired, five-person vote rejected, ops rematch) keeps the flag;
+      // left open it would defer ordinary matching in the matching tick forever.
+      // A meeting whose check-in already opened, or that started or finished,
+      // keeps it too.
+      if (replacementSearchIsStale(doc.data())) {
+        await closeStaleReplacementSearch(doc.id);
+        continue;
+      }
+      const deadline = doc.data()?.replacementSearchDeadlineAt;
+      if (deadline instanceof Timestamp && deadline.toMillis() <= Date.now()) {
+        await cancelReplacementFailedMeeting(doc.id);
+      } else {
+        await fillBlindMeetingVacancies(doc.id);
+      }
+    } catch (error) {
+      // One meeting must not stop the others (or the matching step after this).
+      logger.error("blindMeeting replacement search failed for one meeting", { meetingId: doc.id, error });
     }
   }
 }
@@ -314,7 +344,7 @@ async function closeStaleReplacementSearch(meetingId: string): Promise<void> {
   const meetingRef = db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId);
   await db().runTransaction(async (tx) => {
     const snap = await tx.get(meetingRef);
-    if (!snap.exists || !replacementSearchIsStale(snap.data()?.serverStatus) || snap.data()?.replacementSearchActive !== true) return;
+    if (!snap.exists || !replacementSearchIsStale(snap.data()) || snap.data()?.replacementSearchActive !== true) return;
     tx.set(meetingRef, { replacementSearchActive: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   });
 }
@@ -331,7 +361,15 @@ export async function cancelReplacementFailedMeeting(meetingId: string): Promise
     if (!meetingSnap.exists) return [] as string[];
     const meetingData = meetingSnap.data() ?? {};
     if (meetingData.replacementSearchActive !== true) return [] as string[];
-    if (replacementSearchIsStale(meetingData.serverStatus)) {
+    if (replacementSearchIsStale(meetingData)) {
+      tx.set(meetingRef, { replacementSearchActive: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return [] as string[];
+    }
+    // The deadline cancels a meeting only for a seat that is actually still
+    // open. If concurrent fills closed every seat but left the flag on, the
+    // meeting goes ahead and only the flag is cleared.
+    const openSeats = await tx.get(meetingRef.collection(BLIND_MEETING_COLLECTIONS.participants).where("replacementSearchActive", "==", true));
+    if (!openSeats.docs.some((doc) => doc.data()?.serverStatus === "cancelled")) {
       tx.set(meetingRef, { replacementSearchActive: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return [] as string[];
     }
