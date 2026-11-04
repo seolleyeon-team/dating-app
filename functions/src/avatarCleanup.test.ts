@@ -9,6 +9,7 @@ import {
   isBlocksTargetRefPath,
   isRecommendationExclusionTargetRefPath,
   isUidBoundCleanupRef,
+  listOnboardingPhotoObjects,
   planAccountDeletionPiiOperations,
   requireAvatarCleanupRequest,
   requireFirestoreDocumentId,
@@ -46,6 +47,14 @@ const zeroAccountDeletionCounts = {
   eventTeamMembershipsRemoved: 0,
   eventTeamInvitesCancelled: 0,
   chatMessagesAnonymized: 0,
+  groupChatRoomsDetached: 0,
+  onboardingPhotoObjectsDeleted: 0,
+  blindMeetingDnaDeleted: 0,
+  blindMeetingApplicationsClosed: 0,
+  blindMeetingPublicProfilesScrubbed: 0,
+  blindMeetingPartyMembersScrubbed: 0,
+  blindMeetingPartyMembershipsDeleted: 0,
+  blindMeetingStatsDeleted: 0,
 };
 
 function sampleExecutor() {
@@ -518,6 +527,14 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     eventTeamMembershipsRemoved: 0,
     eventTeamInvitesCancelled: 0,
     chatMessagesAnonymized: 0,
+    groupChatRoomsDetached: 0,
+    onboardingPhotoObjectsDeleted: 0,
+    blindMeetingDnaDeleted: 0,
+    blindMeetingApplicationsClosed: 0,
+    blindMeetingPublicProfilesScrubbed: 0,
+    blindMeetingPartyMembersScrubbed: 0,
+    blindMeetingPartyMembershipsDeleted: 0,
+    blindMeetingStatsDeleted: 0,
   });
 
   const { executor, operations } = sampleExecutor();
@@ -558,4 +575,59 @@ test("P0-3: account deletion removes the user's Bamboo report-hide entries", () 
       { kind: "deleteBambooHiddenContent", key: "post_1__comment_2" },
     ],
   );
+});
+
+// -----------------------------------------------------------------------------
+// P1-5 — onboarding source photographs are part of the uid-bound cleanup set.
+// -----------------------------------------------------------------------------
+
+test("P1-5: onboarding photo objects under the uid's prefix in the default bucket are uid-bound; other users' and other prefixes are not", async () => {
+  const previous = process.env.ONBOARDING_PHOTO_BUCKET;
+  process.env.ONBOARDING_PHOTO_BUCKET = "seolleyeon-final.firebasestorage.app";
+  try {
+    assert.equal(isUidBoundCleanupRef({ bucket: "seolleyeon-final.firebasestorage.app", path: "users/u1/onboarding/photos/1_0_ab.jpg" }, "u1"), true);
+    assert.equal(isUidBoundCleanupRef({ bucket: "seolleyeon-final.firebasestorage.app", path: "users/u2/onboarding/photos/1_0_ab.jpg" }, "u1"), false);
+    assert.equal(isUidBoundCleanupRef({ bucket: "other-bucket", path: "users/u1/onboarding/photos/1_0_ab.jpg" }, "u1"), false);
+    assert.equal(isUidBoundCleanupRef({ bucket: "seolleyeon-final.firebasestorage.app", path: "ai_profiles/u1/x.jpg" }, "u1"), false);
+
+    const refs = await listOnboardingPhotoObjects(
+      {
+        name: "seolleyeon-final.firebasestorage.app",
+        async getFiles(options: { prefix: string }) {
+          assert.equal(options.prefix, "users/u1/onboarding/photos/");
+          return [[{ name: "users/u1/onboarding/photos/a.jpg" }, { name: "users/u1/onboarding/photos/b.jpg" }, { name: "users/u1/onboarding/photos/../escape.jpg" }]];
+        },
+      },
+      "u1",
+    );
+    assert.deepEqual(refs.map((r: { path: string }) => r.path), ["users/u1/onboarding/photos/a.jpg", "users/u1/onboarding/photos/b.jpg"]);
+    await assert.rejects(listOnboardingPhotoObjects({ name: "b", async getFiles() { return [[]]; } }, "../u1"));
+  } finally {
+    if (previous === undefined) delete process.env.ONBOARDING_PHOTO_BUCKET; else process.env.ONBOARDING_PHOTO_BUCKET = previous;
+  }
+});
+
+test("P1-5: the deletion plan deletes every listed onboarding photo and counts it; unsafe refs are skipped", async () => {
+  const previous = process.env.ONBOARDING_PHOTO_BUCKET;
+  process.env.ONBOARDING_PHOTO_BUCKET = "seolleyeon-final.firebasestorage.app";
+  try {
+    const docs = accountDeletionDocsFromParts({
+      onboardingPhotoObjects: [
+        { bucket: "seolleyeon-final.firebasestorage.app", path: "users/u1/onboarding/photos/a.jpg" },
+        { bucket: "seolleyeon-final.firebasestorage.app", path: "users/u1/onboarding/photos/b.jpg" },
+        { bucket: "seolleyeon-final.firebasestorage.app", path: "users/u2/onboarding/photos/c.jpg" },
+      ],
+      meeting: { hasDna: true, hasDnaDraft: false, hasApplication: true, partyIds: [], hasPartyMembership: false, hasStats: true, publicProfileMeetingIds: ["m1"] },
+    });
+    const operations = planAccountDeletionPiiOperations({ uid: "u1", docs });
+    const storage = operations.filter((op: CleanupOperation) => op.kind === "deleteStorage").map((op: CleanupOperation) => (op as { ref: { path: string } }).ref.path);
+    assert.deepEqual(storage, ["users/u1/onboarding/photos/a.jpg", "users/u1/onboarding/photos/b.jpg"], "another user's object is never deleted");
+    const kinds = operations.map((op: CleanupOperation) => op.kind);
+    for (const kind of ["deleteBlindMeetingDna", "closeBlindMeetingApplication", "scrubBlindMeetingPublicProfile", "deleteBlindMeetingStats"]) {
+      assert.ok(kinds.includes(kind as never), kind);
+    }
+    assert.equal(kinds.includes("deleteBlindMeetingDnaDraft" as never), false);
+  } finally {
+    if (previous === undefined) delete process.env.ONBOARDING_PHOTO_BUCKET; else process.env.ONBOARDING_PHOTO_BUCKET = previous;
+  }
 });

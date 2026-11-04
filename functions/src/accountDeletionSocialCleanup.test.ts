@@ -31,6 +31,7 @@ function docs(
     friendOtherUids: [],
     matchIds: [],
     chatRoomIds: [],
+    groupChatRoomIds: [],
     recEventIds: [],
     bambooPostIds: [],
     bambooComments: [],
@@ -422,4 +423,80 @@ test("deleteFriendEdge tolerates a survivor without a friendsCount field", async
   await deleteEdge(db, "bob", "erin");
   assert.equal(db.store.has("users/erin/friends/bob"), false);
   assert.equal(db.store.get("users/erin")?.friendsCount, 0);
+});
+
+// -----------------------------------------------------------------------------
+// P1-5 — participantInfo is a nested map; group rooms stay open.
+// -----------------------------------------------------------------------------
+
+import { isGroupChatRoom } from "./accountDeletionSocialCleanup";
+
+test("P1-5: a two-person room is closed and ONLY the deleted member's nested participantInfo entry is replaced", async () => {
+  const db: Db = new Map();
+  db.set("chat_rooms/dm_alice_bob", {
+    type: "one_to_one",
+    status: "active",
+    participantIds: ["alice", "bob"],
+    participantInfo: {
+      alice: { nickname: "앨리스", avatarUrl: "https://x/a.png" },
+      bob: { nickname: "밥", avatarUrl: "https://x/b.png" },
+    },
+  });
+  const firestore = new FakeFirestore(db) as unknown as import("firebase-admin/firestore").Firestore;
+  await applySocialCleanupOperation(firestore, "alice", { kind: "closeChatRoom", id: "dm_alice_bob" });
+  const room = db.get("chat_rooms/dm_alice_bob") ?? {};
+  assert.equal(room.status, "closed");
+  assert.equal(Object.keys(room).some((k) => k.startsWith("participantInfo.")), false,
+    "set({merge}) treats keys as field names: the old dotted key left a literal top-level field");
+  const info = room.participantInfo as Record<string, Record<string, unknown>>;
+  assert.equal(info.alice.nickname, DELETED_USER_DISPLAY_NAME);
+  assert.equal(info.alice.avatarUrl, null);
+  assert.equal(info.bob.nickname, "밥", "the surviving participant's entry is preserved");
+  assert.equal(info.bob.avatarUrl, "https://x/b.png");
+  assert.deepEqual(room.accountDeletedUserIds, ["alice"]);
+});
+
+test("P1-5: a group room is NOT closed for the remaining members; the departing member is scrubbed and marked", async () => {
+  const db: Db = new Map();
+  db.set("chat_rooms/group_1", {
+    type: "group",
+    roomType: "blind_meeting_group",
+    status: "active",
+    writable: true,
+    participantIds: ["alice", "bob", "carol", "dave", "erin", "frank"],
+    participantInfo: {
+      alice: { nickname: "앨리스", avatarUrl: "" },
+      bob: { nickname: "밥", avatarUrl: "" },
+      carol: { nickname: "캐럴", avatarUrl: "" },
+    },
+  });
+  const firestore = new FakeFirestore(db) as unknown as import("firebase-admin/firestore").Firestore;
+  await applySocialCleanupOperation(firestore, "alice", { kind: "detachGroupChatMember", id: "group_1" });
+  const room = db.get("chat_rooms/group_1") ?? {};
+  assert.equal(room.status, "active", "a 3:3 room keeps its lifecycle state");
+  assert.equal(room.writable, true);
+  assert.deepEqual(room.participantIds, ["alice", "bob", "carol", "dave", "erin", "frank"], "membership arrays are owned by the meeting lifecycle");
+  const info = room.participantInfo as Record<string, Record<string, unknown>>;
+  assert.equal(info.alice.nickname, DELETED_USER_DISPLAY_NAME);
+  assert.equal(info.bob.nickname, "밥");
+  assert.equal(info.carol.nickname, "캐럴");
+  assert.deepEqual(room.accountDeletedUserIds, ["alice"]);
+});
+
+test("P1-5: the planner closes two-person rooms and detaches from group rooms; both get message anonymisation", () => {
+  assert.equal(isGroupChatRoom({ participantIds: ["a", "b"] }), false);
+  assert.equal(isGroupChatRoom({ participantIds: ["a", "b", "c"] }), true);
+  assert.equal(isGroupChatRoom({ participantIds: ["a", "a", "b"] }), false, "duplicates do not make a group");
+  assert.equal(isGroupChatRoom({}), false);
+  const operations = planAccountDeletionSocialOperations({
+    uid: "alice",
+    docs: docs({ chatRoomIds: ["dm_alice_bob"], groupChatRoomIds: ["group_1"] }),
+  });
+  assert.deepEqual(operations.map((op) => `${op.kind}:${"id" in op ? op.id : ""}`), [
+    "closeChatRoom:dm_alice_bob", "anonymizeChatMessages:dm_alice_bob",
+    "detachGroupChatMember:group_1", "anonymizeChatMessages:group_1",
+  ]);
+  const counts = socialCountsFromDocs(docs({ chatRoomIds: ["dm_alice_bob"], groupChatRoomIds: ["group_1", "group_2"] }));
+  assert.equal(counts.chatRoomsClosed, 1);
+  assert.equal(counts.groupChatRoomsDetached, 2);
 });

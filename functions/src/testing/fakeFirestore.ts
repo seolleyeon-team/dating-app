@@ -29,6 +29,22 @@ function isServerTimestampSentinel(value: unknown): boolean {
   return value instanceof FieldValue && SERVER_TIMESTAMP_SENTINEL.isEqual(value);
 }
 
+/// FieldValue.arrayUnion(...) — modelled as a set-union with the stored array.
+function arrayUnionElements(value: unknown): unknown[] | null {
+  if (!(value instanceof FieldValue)) return null;
+  const candidate = value as unknown as { constructor: { name: string }; elements?: unknown };
+  if (candidate.constructor.name !== "ArrayUnionTransform" || !Array.isArray(candidate.elements)) return null;
+  return candidate.elements;
+}
+
+function unionInto(existing: unknown, elements: unknown[]): unknown[] {
+  const base = Array.isArray(existing) ? [...existing] : [];
+  for (const element of elements) {
+    if (!base.some((item) => JSON.stringify(item) === JSON.stringify(element))) base.push(element);
+  }
+  return base;
+}
+
 function materialize(value: unknown): unknown {
   if (isServerTimestampSentinel(value)) return Timestamp.now();
   if (value instanceof Timestamp) return value;
@@ -83,6 +99,11 @@ export function mergeInto(existing: Doc, update: Doc): Doc {
       delete out[key];
       continue;
     }
+    const union = arrayUnionElements(value);
+    if (union) {
+      out[key] = unionInto(out[key], union);
+      continue;
+    }
     if (isRecord(value) && isRecord(out[key])) {
       out[key] = mergeInto(out[key] as Doc, value);
       continue;
@@ -102,6 +123,11 @@ export function mergeSetData(existing: Doc, data: Doc): Doc {
   for (const [key, value] of Object.entries(data)) {
     if (isDeleteSentinel(value)) {
       delete out[key];
+      continue;
+    }
+    const union = arrayUnionElements(value);
+    if (union) {
+      out[key] = unionInto(out[key], union);
       continue;
     }
     if (isRecord(value) && isRecord(out[key])) {
@@ -133,6 +159,10 @@ export class FakeFirestore {
         const path = `${name}/${id}`;
         return {
           path,
+          /// Subcollections: users/{uid}/deviceTokens, blindMeetings/{id}/publicProfiles …
+          collection(sub: string) {
+            return self.collection(`${path}/${sub}`);
+          },
           async get() {
             const data = self.db.get(path);
             return {

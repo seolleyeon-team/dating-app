@@ -131,6 +131,15 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
           --project demo-p13-tokens
           "node --test functions/.ci-emulator-lib/pushTokenOwnership.emulator-test.js"
+      # P1-5: account deletion — nested participantInfo scrub on the real engine
+      # (no literal dotted key), group rooms detached not closed, blind-meeting
+      # personal data removed/anonymised, onboarding photographs deleted from
+      # the uid's Storage prefix only.
+      - name: P1-5 account deletion personal data (Firestore + Storage emulators)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,storage
+          --project demo-p15-deletion
+          "node --test functions/.ci-emulator-lib/accountDeletion.emulator-test.js"
       # Blind-meeting replacement search (both scheduled ticks run it): fill
       # by same-gender FIFO candidate, concurrent ticks fill once, deadline
       # cancellation refunds remaining members once, matching deferral.

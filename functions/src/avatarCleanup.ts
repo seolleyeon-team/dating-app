@@ -20,6 +20,17 @@ import {
   type SocialCleanupOperation,
 } from "./accountDeletionSocialCleanup";
 import {
+  applyMeetingCleanupOperation,
+  emptyMeetingCounts,
+  emptyMeetingDocs,
+  loadAccountDeletionMeetingDocs,
+  meetingCountsFromDocs,
+  planAccountDeletionMeetingOperations,
+  type AccountDeletionMeetingDocs,
+  type MeetingCleanupOperation,
+} from "./accountDeletionMeetingCleanup";
+import { onboardingPhotoStoragePrefix } from "./onboardingPhotoRequirement";
+import {
   resolveAccountDeletionOwner,
   type AccountDeletionOwner,
 } from "./accountDeletionAuthorization";
@@ -93,6 +104,15 @@ export type AvatarCleanupCounts = {
   eventTeamMembershipsRemoved: number;
   eventTeamInvitesCancelled: number;
   chatMessagesAnonymized: number;
+  // P1-5
+  groupChatRoomsDetached: number;
+  onboardingPhotoObjectsDeleted: number;
+  blindMeetingDnaDeleted: number;
+  blindMeetingApplicationsClosed: number;
+  blindMeetingPublicProfilesScrubbed: number;
+  blindMeetingPartyMembersScrubbed: number;
+  blindMeetingPartyMembershipsDeleted: number;
+  blindMeetingStatsDeleted: number;
 };
 
 export type AccountDeletionDocs = {
@@ -114,6 +134,13 @@ export type AccountDeletionDocs = {
   studentEmailBindingIds: string[];
   kakaoIdentityHashIds: string[];
   social: AccountDeletionSocialDocs;
+  /** P1-5: blind-meeting personal data keyed by / naming this uid. */
+  meeting: AccountDeletionMeetingDocs;
+  /**
+   * P1-5: server-written onboarding source photographs
+   * (users/{uid}/onboarding/photos/*) listed from Storage at load time.
+   */
+  onboardingPhotoObjects: GcsRef[];
 };
 
 export type AvatarCleanupResponse = {
@@ -175,7 +202,8 @@ export type CleanupOperation =
   | { kind: "deleteKakaoFriendPair"; pairId: string }
   | { kind: "deleteStudentEmailBinding"; emailHash: string }
   | { kind: "deleteKakaoIdentity"; kakaoIdentityHash: string }
-  | SocialCleanupOperation;
+  | SocialCleanupOperation
+  | MeetingCleanupOperation;
 
 export type CleanupExecutor = {
   load(uid: string, requestId: string): Promise<CleanupDocs>;
@@ -240,6 +268,22 @@ function chatProfilePhotoBucket(): string {
     "CHAT_PROFILE_PHOTO_BUCKET",
     DEFAULT_CHAT_PROFILE_PHOTO_BUCKET,
   );
+}
+
+/**
+ * P1-5: the bucket uploadOnboardingPhoto writes to — the project's default
+ * bucket (getStorage().bucket()). Resolved lazily so pure planning code and
+ * tests without an initialised app keep working; an unresolvable default
+ * means no onboarding object can be matched (fail closed, counted as unsafe).
+ */
+export function onboardingPhotoBucket(): string {
+  const configured = envValue("ONBOARDING_PHOTO_BUCKET", "");
+  if (configured) return configured;
+  try {
+    return getStorage().bucket().name;
+  } catch {
+    return "";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -324,9 +368,33 @@ export function isUidBoundCleanupRef(ref: GcsRef, uid: string): boolean {
     { bucket: approvedAvatarBucket(), prefix: `users/${safeUid}/avatar/` },
     { bucket: chatProfilePhotoBucket(), prefix: `users/${safeUid}/chat-profile/` },
   ];
+  const onboardingBucket = onboardingPhotoBucket();
+  if (onboardingBucket) {
+    allowed.push({ bucket: onboardingBucket, prefix: onboardingPhotoStoragePrefix(safeUid) });
+  }
   return allowed.some(
-    (item) => ref.bucket === item.bucket && ref.path.startsWith(item.prefix),
+    (item) => item.bucket.length > 0 && ref.bucket === item.bucket && ref.path.startsWith(item.prefix),
   );
+}
+
+/** Storage listing surface used to enumerate onboarding photo objects. */
+export type OnboardingPhotoBucketLike = {
+  name: string;
+  getFiles(options: { prefix: string; autoPaginate?: boolean }): Promise<[Array<{ name: string }>, ...unknown[]]>;
+};
+
+/** P1-5: every object under the uid's onboarding prefix (nothing else). */
+export async function listOnboardingPhotoObjects(
+  bucket: OnboardingPhotoBucketLike,
+  uid: string,
+): Promise<GcsRef[]> {
+  const safeUid = requirePathSegment(uid, "uid");
+  const prefix = onboardingPhotoStoragePrefix(safeUid);
+  const [files] = await bucket.getFiles({ prefix, autoPaginate: true });
+  return files
+    .map((file) => asString(file.name))
+    .filter((name) => name.startsWith(prefix) && !name.includes(".."))
+    .map((name) => ({ bucket: bucket.name, path: name }));
 }
 
 function emptyCounts(): AvatarCleanupCounts {
@@ -357,6 +425,8 @@ function emptyCounts(): AvatarCleanupCounts {
     studentEmailBindingsDeleted: 0,
     kakaoIdentitiesDeleted: 0,
     ...emptySocialCounts(),
+    ...emptyMeetingCounts(),
+    onboardingPhotoObjectsDeleted: 0,
   };
 }
 
@@ -422,6 +492,8 @@ export function accountDeletionDocsFromParts(
     studentEmailBindingIds: parts.studentEmailBindingIds ?? [],
     kakaoIdentityHashIds: parts.kakaoIdentityHashIds ?? [],
     social: parts.social ?? emptySocialDocs(),
+    meeting: parts.meeting ?? emptyMeetingDocs(),
+    onboardingPhotoObjects: parts.onboardingPhotoObjects ?? [],
   };
 }
 
@@ -496,6 +568,13 @@ export function planAccountDeletionPiiOperations(params: {
   operations.push(
     ...planAccountDeletionSocialOperations({ uid, docs: docs.social }),
   );
+  // P1-5: blind-meeting personal data and the onboarding source photographs.
+  operations.push(
+    ...planAccountDeletionMeetingOperations({ uid, docs: docs.meeting }),
+  );
+  for (const ref of uniqueUidBoundRefs(uid, docs.onboardingPhotoObjects).refs) {
+    operations.push({ kind: "deleteStorage", ref });
+  }
 
   return operations;
 }
@@ -527,6 +606,11 @@ function applyAccountDeletionCounts(
   counts.studentEmailBindingsDeleted = docs.studentEmailBindingIds.length;
   counts.kakaoIdentitiesDeleted = docs.kakaoIdentityHashIds.length;
   Object.assign(counts, socialCountsFromDocs(docs.social));
+  Object.assign(counts, meetingCountsFromDocs(docs.meeting));
+  counts.onboardingPhotoObjectsDeleted = uniqueUidBoundRefs(
+    uid,
+    docs.onboardingPhotoObjects,
+  ).refs.length;
 }
 
 function requestDocId(uid: string, clientRequestId: string): string {
@@ -741,11 +825,23 @@ export async function executeAvatarCleanup(params: {
   return plan.response;
 }
 
+export type LoadAccountDeletionDocsOptions = {
+  /** P1-5: lists users/{uid}/onboarding/photos/* from Storage; default none. */
+  listOnboardingPhotoObjects?: (uid: string) => Promise<GcsRef[]>;
+};
+
 export async function loadAccountDeletionDocs(
   firestore: Firestore,
   uid: string,
+  options: LoadAccountDeletionDocsOptions = {},
 ): Promise<AccountDeletionDocs> {
   const safeUid = requirePathSegment(uid, "uid");
+  const [meeting, onboardingPhotoObjects] = await Promise.all([
+    loadAccountDeletionMeetingDocs(firestore, safeUid),
+    options.listOnboardingPhotoObjects
+      ? options.listOnboardingPhotoObjects(safeUid)
+      : Promise.resolve([] as GcsRef[]),
+  ]);
   const [
     userSnap,
     userPrivateSnap,
@@ -865,6 +961,8 @@ export async function loadAccountDeletionDocs(
     studentEmailBindingIds,
     kakaoIdentityHashIds,
     social,
+    meeting,
+    onboardingPhotoObjects,
   });
 }
 
@@ -900,7 +998,13 @@ export function createAvatarCleanupFirestoreExecutor(
             .get(),
           firestore.collection("avatarJobs").where("uid", "==", loadUid).get(),
           firestore.collection("avatarMediaCleanupRequests").doc(requestId).get(),
-          loadAccountDeletionDocs(firestore, loadUid),
+          loadAccountDeletionDocs(firestore, loadUid, {
+            listOnboardingPhotoObjects: (listUid) =>
+              listOnboardingPhotoObjects(
+                getStorage().bucket() as unknown as OnboardingPhotoBucketLike,
+                listUid,
+              ),
+          }),
         ]);
       return {
         userData: (userSnap.data() ?? {}) as Record<string, unknown>,
@@ -1281,7 +1385,17 @@ export function createAvatarCleanupFirestoreExecutor(
         case "removeEventTeamMember":
         case "cancelEventTeamInvite":
         case "anonymizeChatMessages":
+        case "detachGroupChatMember":
           await applySocialCleanupOperation(firestore, uid, operation);
+          return;
+        case "deleteBlindMeetingDna":
+        case "deleteBlindMeetingDnaDraft":
+        case "closeBlindMeetingApplication":
+        case "scrubBlindMeetingPublicProfile":
+        case "scrubBlindMeetingPartyMember":
+        case "deleteBlindMeetingPartyMembership":
+        case "deleteBlindMeetingStats":
+          await applyMeetingCleanupOperation(firestore, uid, operation);
           return;
         case "markCompleted":
           await firestore
