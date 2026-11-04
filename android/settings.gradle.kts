@@ -22,6 +22,8 @@ plugins {
     id("com.android.application") version "8.13.2" apply false
     // START: FlutterFire Configuration
     id("com.google.gms.google-services") version("4.3.15") apply false
+    // P1-6: Crashlytics Gradle plugin (native crash capture + mapping upload).
+    id("com.google.firebase.crashlytics") version("3.0.6") apply false
     // END: FlutterFire Configuration
     id("org.jetbrains.kotlin.android") version "2.3.0" apply false
 }
