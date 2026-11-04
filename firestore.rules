@@ -1998,6 +1998,12 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow read, write: if false;
     }
 
+    // P1-3: private FCM token ownership registry (token fingerprint → owner).
+    // Maintained by onDeviceTokenWritten and read before every push.
+    match /pushTokenOwners/{tokenFingerprint} {
+      allow read, write: if false;
+    }
+
     // 운영 설정(약속잡기 기한 등)은 읽기 전용으로 공개
     match /blindMeetingConfig/{docId} {
       allow get: if true;

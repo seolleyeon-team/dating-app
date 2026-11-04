@@ -35,6 +35,44 @@ void main() {
     expect(service.claimOpenHandling(key), isFalse);
   });
 
+  test('P1-3: logout unregisters the device before Firebase sign-out', () {
+    final auth = File('lib/providers/auth_provider.dart').readAsStringSync();
+    final logoutStart = auth.indexOf('Future<void> logout() async {');
+    expect(logoutStart, greaterThan(0));
+    final logoutBody = auth.substring(logoutStart);
+    final unregisterAt = logoutBody.indexOf(
+      'PushNotificationService.instance.unregisterCurrentDevice(',
+    );
+    final signOutAt = logoutBody.indexOf('_authService.signOutAll()');
+    expect(unregisterAt, greaterThan(0));
+    expect(
+      signOutAt,
+      greaterThan(unregisterAt),
+      reason: 'the deviceTokens delete needs the still-authenticated owner',
+    );
+
+    final source = File(
+      'lib/services/push_notification_service.dart',
+    ).readAsStringSync();
+    expect(source, contains(".collection('deviceTokens')"));
+    expect(source, contains('_messaging.deleteToken()'));
+    expect(
+      source,
+      contains('.timeout(timeout)'),
+      reason: 'offline logout must not hang on push cleanup',
+    );
+  });
+
+  test(
+    'P1-3: unregisterCurrentDevice is safe before Firebase is available',
+    () async {
+      await expectLater(
+        PushNotificationService.instance.unregisterCurrentDevice(userId: 'u1'),
+        completes,
+      );
+    },
+  );
+
   test('push diagnostics do not log raw identifiers or tokens', () {
     final source = File(
       'lib/services/push_notification_service.dart',

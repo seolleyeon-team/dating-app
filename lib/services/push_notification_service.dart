@@ -426,6 +426,68 @@ class PushNotificationService with WidgetsBindingObserver {
     }
   }
 
+  /// Removes this device's push association with the signed-in account.
+  ///
+  /// Called BEFORE Firebase sign-out (P1-3). A shared device must not keep
+  /// delivering the previous account's private notifications to the next
+  /// account. Two independent steps, each bounded so an offline logout never
+  /// hangs:
+  ///   1. delete `users/{uid}/deviceTokens/{token}` (the client-side claim);
+  ///   2. `deleteToken()` rotates the FCM token, so even if step 1 failed
+  ///      (offline) the registered token becomes undeliverable and the server
+  ///      drops it on the next send. The next sign-in registers a fresh token
+  ///      under the new account and the server-side ownership registry
+  ///      transfers it.
+  /// Failures are logged (privacy-safe) and never block the logout.
+  Future<void> unregisterCurrentDevice({String? userId}) async {
+    if (kIsWeb) return;
+    try {
+      Firebase.app();
+    } catch (_) {
+      return;
+    }
+    const timeout = Duration(seconds: 5);
+    final uid = (userId ?? await _storage.getKakaoUserId())?.trim() ?? '';
+    String? token;
+    try {
+      token = await _messaging.getToken().timeout(timeout);
+    } catch (e) {
+      debugPrint(
+        '[PUSH] unregister getToken ${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
+    if (uid.isNotEmpty && token != null && token.isNotEmpty) {
+      try {
+        await _firestore
+            .collection('users')
+            .doc(uid)
+            .collection('deviceTokens')
+            .doc(token)
+            .delete()
+            .timeout(timeout);
+        debugPrint(
+          '[PUSH] device registration removed for '
+          '${PrivacyLogUtils.idFingerprint(uid)}',
+        );
+      } catch (e) {
+        debugPrint(
+          '[PUSH] unregister delete ${PrivacyLogUtils.errorSummary(e)}',
+        );
+      }
+    }
+    try {
+      await _messaging.deleteToken().timeout(timeout);
+      debugPrint('[PUSH] fcm token rotated on logout');
+    } catch (e) {
+      debugPrint(
+        '[PUSH] unregister deleteToken ${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
+    _openedChatRoomId = null;
+    _isChatRoomVisible = false;
+    _isChatListVisible = false;
+  }
+
   Future<void> _onForegroundMessage(RemoteMessage message) async {
     final notification = message.notification;
     if (notification == null) return;

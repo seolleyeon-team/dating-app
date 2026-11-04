@@ -210,6 +210,7 @@ import {
   respondTeamInviteCore,
 } from "./eventTeamMembership";
 import { ensureMutualMatch, isBlockedEitherWay } from "./mutualMatchCreation";
+import { createDeviceTokenOwnershipTrigger } from "./pushTokenOwnership";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -2683,6 +2684,9 @@ export const sendChatText = createSendChatTextFunction(
   db,
   (request) => resolveReviewCapableAppUser(request.auth),
 );
+
+// P1-3: server-authoritative FCM token ownership (pushTokenOwners registry).
+export const onDeviceTokenWritten = createDeviceTokenOwnershipTrigger(db);
 
 const communityModeration = createCommunityModerationCallables({
   firestore: db,
