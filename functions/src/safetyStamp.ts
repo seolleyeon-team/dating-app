@@ -329,7 +329,6 @@ export const submitSafetyStamp = onCall(
           place: activePromise.place ?? null,
           placeCategory: activePromise.placeCategory ?? null,
           status: "in_progress",
-          readBy: [uid],
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -353,7 +352,6 @@ export const submitSafetyStamp = onCall(
           place: activePromise.place ?? null,
           placeCategory: activePromise.placeCategory ?? null,
           status: "completed",
-          readBy: [uid],
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });

@@ -21,6 +21,16 @@ void main() {
     expect(primaryBranch, lessThan(legacyRead));
   });
 
+  test('legacy hosted write carries the server-issued token (P0-1)', () {
+    // firestore.rules only honours the email-link verification write when it
+    // names the emailLinkTokens document issued for that account.
+    final rules = File('firestore.rules').readAsStringSync();
+
+    expect(hostedPage, contains('studentEmailLinkToken: String(token)'));
+    expect(rules, contains("'studentEmailLinkToken'"));
+    expect(rules, contains('emailLinkTokenBindsCallerTo('));
+  });
+
   test('new primary email links bypass stale hosted-page caches', () {
     final functionsIndex = File('functions/src/index.ts').readAsStringSync();
 

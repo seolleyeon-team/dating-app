@@ -49,7 +49,7 @@ export function createSendChatTextFunction(firestore: Firestore, resolveUser: Re
     const now = FieldValue.serverTimestamp();
     await firestore.runTransaction(async (transaction) => {
       transaction.set(messageRef, {
-        senderId: user.userId, text, type: "text", readBy: [user.userId],
+        senderId: user.userId, text, type: "text",
         createdAt: now, updatedAt: now,
       });
       transaction.set(roomRef, {

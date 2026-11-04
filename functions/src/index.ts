@@ -137,16 +137,26 @@ import { createCommunitySafetyCallables } from "./communitySafety";
 import { createSendChatTextFunction } from "./chatSafety";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
+import {
+  accountMessageUnread,
+  chatDigestNotificationId,
+  collectDailyUnreadDigest,
+} from "./chatUnread";
+import {
+  claimStudentEmailBinding,
+  studentEmailBindingClaimError,
+} from "./studentEmailBinding";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 import {
   createCommunityModerationCallables,
   createCommunityModerationDeadlineSchedule,
 } from "./communityModeration";
 import {
+  BAMBOO_ANONYMOUS_ACTOR_NAME,
   BAMBOO_COMMENT_OWNER_COLLECTION,
   BAMBOO_POST_OWNER_COLLECTION,
   bambooCommentOwnerDocId,
-  ownerUidForNotification,
+  ownerUidOrEmpty,
   resolveBambooOwner,
 } from "./bambooOwnership";
 import { createUploadOnboardingPhotoFunction } from "./onboardingPhotoUpload";
@@ -1132,22 +1142,6 @@ async function countPostLikeNotificationsForPost(
   return snap.size;
 }
 
-async function hasChatDigestForDate(
-  userId: string,
-  digestDate: string
-): Promise<boolean> {
-  const snap = await db
-    .collection("users")
-    .doc(userId)
-    .collection("notifications")
-    .where("type", "==", "chat_digest")
-    .where("digestDate", "==", digestDate)
-    .limit(1)
-    .get();
-
-  return !snap.empty;
-}
-
 function buildSafetyStampFollowUpNotificationId(
   promiseId: string,
   userId: string
@@ -1155,59 +1149,8 @@ function buildSafetyStampFollowUpNotificationId(
   return `safety_stamp_follow_up_${promiseId}_${userId}`;
 }
 
-async function getUnreadChatDigestForUser(userId: string): Promise<{
-  unreadCount: number;
-  previewSenderName: string | null;
-}> {
-  const roomsSnap = await db
-    .collection("chat_rooms")
-    .where("participantIds", "array-contains", userId)
-    .where("status", "==", "active")
-    .get();
-
-  let unreadCount = 0;
-  let previewSenderName: string | null = null;
-
-  for (const roomDoc of roomsSnap.docs) {
-    const roomData = (roomDoc.data() ?? {}) as Record<string, unknown>;
-    const participantInfoRaw = roomData.participantInfo;
-    const participantInfo = isRecord(participantInfoRaw)
-      ? participantInfoRaw
-      : {};
-
-    const messagesSnap = await roomDoc.ref.collection("messages").get();
-
-    for (const msgDoc of messagesSnap.docs) {
-      const msg = (msgDoc.data() ?? {}) as Record<string, unknown>;
-      const senderId = asString(msg.senderId ?? "");
-      if (!senderId || senderId === "system" || senderId === userId) continue;
-
-      const readByRaw = msg.readBy;
-      const readBy = Array.isArray(readByRaw)
-        ? readByRaw.map((v) => asString(v)).filter((v) => v.length > 0)
-        : [];
-
-      if (!readBy.includes(userId)) {
-        unreadCount += 1;
-
-        if (!previewSenderName) {
-          const senderInfo = participantInfo[senderId];
-          previewSenderName = isRecord(senderInfo)
-            ? asString(senderInfo.nickname ?? "", "")
-            : "";
-          if (!previewSenderName) {
-            previewSenderName = "누군가";
-          }
-        }
-      }
-    }
-  }
-
-  return {
-    unreadCount,
-    previewSenderName,
-  };
-}
+// P0-2: the users × rooms × messages digest scan (hasChatDigestForDate /
+// getUnreadChatDigestForUser) was removed; see chatUnread.ts.
 
 type ResolvedAppUser = {
   userId: string;
@@ -2732,6 +2675,9 @@ const communitySafety = createCommunitySafetyCallables(
 );
 export const createCommunityPost = communitySafety.createCommunityPost;
 export const createCommunityComment = communitySafety.createCommunityComment;
+export const deleteCommunityPost = communitySafety.deleteCommunityPost;
+export const deleteCommunityComment = communitySafety.deleteCommunityComment;
+export const reportBambooContent = communitySafety.reportBambooContent;
 export const sendChatText = createSendChatTextFunction(
   db,
   (request) => resolveReviewCapableAppUser(request.auth),
@@ -2925,6 +2871,12 @@ export const sendStudentVerificationEmail = onCall(
     if (!userSnap.exists || asNonEmptyString(userData.kakaoUserId) !== uid) {
       throw new HttpsError("permission-denied", "로그인 세션을 다시 확인해주세요.");
     }
+    // An account holds one mailbox. Completion rejects a different one anyway;
+    // refusing here keeps a doomed request from reserving someone else's mailbox.
+    const storedStudentEmail = asNonEmptyString(userData.studentEmail);
+    if (storedStudentEmail && normalizeYonseiEmail(storedStudentEmail) !== email) {
+      throw new HttpsError("permission-denied", "이미 다른 연세 이메일로 인증된 계정이에요.");
+    }
 
     // Reject an incomplete mail-provider configuration before reserving an
     // action token or consuming a user's resend quota.
@@ -2986,6 +2938,22 @@ export const sendStudentVerificationEmail = onCall(
 
       const token = randomUUID();
       const expiresAt = Timestamp.fromMillis(nowMs + STUDENT_VERIFICATION_TOKEN_TTL_MS);
+      // P0-1: one mailbox ↔ one account. The hosted verification page writes
+      // users/{uid} directly and cannot create the binding itself, so the
+      // uniqueness decision is made HERE, atomically with the token: reserve
+      // the mailbox for this account until the token expires. firestore.rules
+      // then honours the hosted write only when this reservation names the
+      // target account.
+      const claim = await claimStudentEmailBinding(db, tx, {
+        appUserId: uid,
+        email,
+        mode: "pending",
+        expiresAt,
+        nowMs,
+      });
+      if (!claim.ok) {
+        throw studentEmailBindingClaimError(claim.reason);
+      }
       const rateUpdate = (decision: Extract<typeof emailDecision, { allowed: true }>) => ({
         minuteWindowStartedAt: Timestamp.fromMillis(decision.minuteWindowStartedAtMs),
         minuteRequestCount: decision.minuteRequestCount,
@@ -4558,7 +4526,6 @@ export const onInteractionCreated = onDocumentCreated(
       content: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
       type: "system",
       createdAt: FieldValue.serverTimestamp(),
-      readBy: [],
       dataPartition: fromPartition,
     });
 
@@ -4577,13 +4544,46 @@ export const onInteractionCreated = onDocumentCreated(
 // 3) 새 채팅 메시지 → 푸시 알림
 // =============================================================================
 export const onChatMessageCreated = onDocumentCreated(
-  "chat_rooms/{roomId}/messages/{messageId}",
+  {
+    document: "chat_rooms/{roomId}/messages/{messageId}",
+    // P0-2: the accounting below re-throws so a failed event is retried.
+    // Without this the deployed policy is RETRY_POLICY_DO_NOT_RETRY (verified
+    // on the live trigger, 2026-10-22) and the event would be dropped — a
+    // silently lost increment. Retries are safe: the accounting is idempotent
+    // (message marker) and the push is deduplicated (notificationDispatchLog).
+    retry: true,
+  },
   async (event) => {
     const snap = event.data;
     if (!snap) return;
 
     const roomId = event.params.roomId;
     const message = snap.data();
+
+    // P0-2: room-level unread accounting is the ONE authority for unread
+    // state and covers every creation path (text callable, system, promise,
+    // support). It runs before any early return below so system messages are
+    // counted (they always were, on the client), and it is idempotent via the
+    // message's unreadAccountedAt marker, so a redelivered event cannot
+    // double-count.
+    try {
+      const accounting = await accountMessageUnread(db, { roomId, messageId: event.params.messageId });
+      logger.info("chat unread accounted", {
+        roomId,
+        messageId: event.params.messageId,
+        reason: accounting.reason,
+        incremented: accounting.recipients.length,
+        // Recipients who marked the room read after this message was
+        // committed (read high-water mark): not a phantom unread.
+        alreadyRead: accounting.alreadyRead.length,
+      });
+    } catch (error) {
+      // Re-throw so the platform retries (retry: true above): losing an
+      // increment is a silent product defect, and the marker makes the retry
+      // safe.
+      logger.error("chat unread accounting failed", { roomId, messageId: event.params.messageId, error });
+      throw error;
+    }
 
     const senderId = asString(message.senderId ?? "");
     if (!senderId || senderId === "system") return;
@@ -4651,50 +4651,45 @@ export const onChatMessageCreated = onDocumentCreated(
 // =============================================================================
 // 4) 대나무숲 댓글/답글 푸시 + 인앱 알림
 // =============================================================================
-// SEC-04. 소유자는 비공개 매핑을 먼저 보고, 아직 이관되지 않은 문서에 한해
-// public authorId 를 임시로 인정한다. 둘이 어긋나면 알림을 보내지 않는다 —
-// 잘못 고르면 남의 글 알림이 엉뚱한 사람에게 간다. 여기서 users /
-// publicProfiles 를 뒤져 추측하지 않는다. 그게 없애려는 join 그 자체다.
-async function resolveBambooPostOwnerUid(
-  postId: string,
-  legacyAuthorId: unknown
-): Promise<string> {
+// P0-3. 소유자는 비공개 매핑으로만 정한다. 매핑이 없거나 깨졌으면 아무에게도
+// 보내지 않는다 (fail closed) — public authorId fallback 은 없다. 알림 문서와
+// 푸시 payload 에는 행위자(댓글 작성자·좋아요 누른 사람)의 UID 나 닉네임을
+// 넣지 않는다. 받는 사람이 읽을 수 있는 문서라서, 넣는 순간 익명 작성자가
+// 특정된다. 로그에도 행위자 UID 를 남기지 않는다.
+async function resolveBambooPostOwnerUid(postId: string): Promise<string> {
   const mapSnap = await db
     .collection(BAMBOO_POST_OWNER_COLLECTION)
     .doc(postId)
     .get();
   const resolution = resolveBambooOwner(
-    mapSnap.data()?.ownerUid,
-    legacyAuthorId
+    mapSnap.exists ? mapSnap.data() : null,
+    { postId }
   );
-  if (resolution.status === "conflict") {
-    logger.error("Bamboo post ownership conflict; skipping notification", {
-      postId,
-    });
+  if (resolution.status === "malformed") {
+    logger.error("Bamboo post ownership mapping malformed; skipping notification", { postId });
   }
-  return ownerUidForNotification(resolution);
+  return ownerUidOrEmpty(resolution);
 }
 
 async function resolveBambooCommentOwnerUid(
   postId: string,
-  commentId: string,
-  legacyAuthorId: unknown
+  commentId: string
 ): Promise<string> {
   const mapSnap = await db
     .collection(BAMBOO_COMMENT_OWNER_COLLECTION)
     .doc(bambooCommentOwnerDocId(postId, commentId))
     .get();
   const resolution = resolveBambooOwner(
-    mapSnap.data()?.ownerUid,
-    legacyAuthorId
+    mapSnap.exists ? mapSnap.data() : null,
+    { postId, commentId }
   );
-  if (resolution.status === "conflict") {
-    logger.error("Bamboo comment ownership conflict; skipping notification", {
+  if (resolution.status === "malformed") {
+    logger.error("Bamboo comment ownership mapping malformed; skipping notification", {
       postId,
       commentId,
     });
   }
-  return ownerUidForNotification(resolution);
+  return ownerUidOrEmpty(resolution);
 }
 
 export const onBambooCommentCreated = onDocumentCreated(
@@ -4707,35 +4702,28 @@ export const onBambooCommentCreated = onDocumentCreated(
     const commentId = event.params.commentId;
     const comment = snap.data();
 
-    const authorId = await resolveBambooCommentOwnerUid(
-      postId,
-      commentId,
-      comment.authorId
-    );
+    // 댓글 작성자는 자기 알림 억제에만 쓴다. 모르면 보내지 않는다.
+    const commenterUid = await resolveBambooCommentOwnerUid(postId, commentId);
     const content = asString(comment.content ?? "").trim();
     const parentCommentId = asNonEmptyString(comment.parentCommentId) ?? "";
 
-    if (!authorId) return;
-
-    const authorInfo = await getUserDisplayInfo(authorId);
+    if (!commenterUid) return;
 
     const postSnap = await db.collection("bamboo_posts").doc(postId).get();
     if (!postSnap.exists) return;
 
-    const post = (postSnap.data() ?? {}) as Record<string, unknown>;
-    const postAuthorId = await resolveBambooPostOwnerUid(postId, post.authorId);
-
     // 일반 댓글: 글 작성자에게 푸시 + 인앱 알림
     if (!parentCommentId) {
-      if (postAuthorId && postAuthorId !== authorId) {
+      const postOwnerUid = await resolveBambooPostOwnerUid(postId);
+      if (postOwnerUid && postOwnerUid !== commenterUid) {
         const notificationId = buildNotificationIdempotencyKey([
           "community_comment",
           postId,
           commentId,
-          postAuthorId,
+          postOwnerUid,
         ]);
         await sendPushOnce(
-          [postAuthorId],
+          [postOwnerUid],
           {
             title: "내 글에 새 댓글이 달렸어요",
             body: content || "댓글이 도착했어요.",
@@ -4750,15 +4738,14 @@ export const onBambooCommentCreated = onDocumentCreated(
         );
 
         await createInAppNotification(
-          postAuthorId,
+          postOwnerUid,
           {
             type: "community_comment",
             title: "내 글에 새 댓글이 달렸어요",
-            body: content || "누군가가 회원님의 글에 댓글을 남겼습니다.",
+            body: content || "익명의 누군가가 회원님의 글에 댓글을 남겼습니다.",
             deeplinkType: "community_post",
             deeplinkId: postId,
-            actorId: authorId,
-            actorName: authorInfo.nickname,
+            actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
             postId,
             commentId,
           },
@@ -4768,8 +4755,6 @@ export const onBambooCommentCreated = onDocumentCreated(
         logger.info("Community comment push + in-app notification sent", {
           postId,
           commentId,
-          target: postAuthorId,
-          authorId,
         });
       }
       return;
@@ -4785,61 +4770,50 @@ export const onBambooCommentCreated = onDocumentCreated(
 
     if (!parentSnap.exists) return;
 
-    const parent = (parentSnap.data() ?? {}) as Record<string, unknown>;
-    const parentAuthorId = await resolveBambooCommentOwnerUid(
+    const parentOwnerUid = await resolveBambooCommentOwnerUid(postId, parentCommentId);
+    if (!parentOwnerUid || parentOwnerUid === commenterUid) return;
+
+    const notificationId = buildNotificationIdempotencyKey([
+      "community_reply",
       postId,
-      parentCommentId,
-      parent.authorId
-    );
-
-    const targets = [parentAuthorId].filter((uid) => uid && uid !== authorId);
-
-    if (targets.length > 0) {
-      const notificationId = buildNotificationIdempotencyKey([
-        "community_reply",
-        postId,
-        commentId,
-        parentAuthorId,
-      ]);
-      await sendPushOnce(
-        targets,
-        {
-          title: "내 댓글에 답글이 달렸어요",
-          body: content || "답글이 도착했어요.",
-          data: {
-            type: "community_reply",
-            postId,
-            commentId,
-            notificationId,
-          },
-        },
-        `push_${notificationId}`
-      );
-
-      await createInAppNotification(
-        parentAuthorId,
-        {
+      commentId,
+      parentOwnerUid,
+    ]);
+    await sendPushOnce(
+      [parentOwnerUid],
+      {
+        title: "내 댓글에 답글이 달렸어요",
+        body: content || "답글이 도착했어요.",
+        data: {
           type: "community_reply",
-          title: "내 댓글에 답글이 달렸어요",
-          body: content || "누군가가 회원님의 댓글에 답글을 남겼습니다.",
-          deeplinkType: "community_post",
-          deeplinkId: postId,
-          actorId: authorId,
-          actorName: authorInfo.nickname,
           postId,
           commentId,
+          notificationId,
         },
-        notificationId
-      );
+      },
+      `push_${notificationId}`
+    );
 
-      logger.info("Community reply push + in-app notification sent", {
+    await createInAppNotification(
+      parentOwnerUid,
+      {
+        type: "community_reply",
+        title: "내 댓글에 답글이 달렸어요",
+        body: content || "익명의 누군가가 회원님의 댓글에 답글을 남겼습니다.",
+        deeplinkType: "community_post",
+        deeplinkId: postId,
+        actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
         postId,
         commentId,
-        parentCommentId,
-        targets,
-        authorId,
-      });
-    }
+      },
+      notificationId
+    );
+
+    logger.info("Community reply push + in-app notification sent", {
+      postId,
+      commentId,
+      parentCommentId,
+    });
   }
 );
 
@@ -4853,6 +4827,8 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     if (!snap) return;
 
     const postId = event.params.postId;
+    // 경로의 userId 는 좋아요를 누른 본인이다 (rules: isSelf). 자기 알림 억제에만
+    // 쓰고 어디에도 기록하지 않는다.
     const likerUserId = event.params.userId;
 
     if (!postId || !likerUserId) return;
@@ -4860,31 +4836,26 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     const postSnap = await db.collection("bamboo_posts").doc(postId).get();
     if (!postSnap.exists) return;
 
-    const post = (postSnap.data() ?? {}) as Record<string, unknown>;
-    const postAuthorId = await resolveBambooPostOwnerUid(postId, post.authorId);
+    const postOwnerUid = await resolveBambooPostOwnerUid(postId);
 
-    if (!postAuthorId || postAuthorId === likerUserId) {
+    if (!postOwnerUid || postOwnerUid === likerUserId) {
       return;
     }
 
     const existingCount = await countPostLikeNotificationsForPost(
-      postAuthorId,
+      postOwnerUid,
       postId
     );
 
     if (existingCount >= 5) {
       logger.info("Skipped post like notification due to 5-notification limit", {
         postId,
-        postAuthorId,
-        likerUserId,
         existingCount,
       });
       return;
     }
 
-    const likerInfo = await getUserDisplayInfo(likerUserId);
-
-    await sendPushToUsers([postAuthorId], {
+    await sendPushToUsers([postOwnerUid], {
       title: "내 글에 좋아요가 눌렸어요",
       body: "누군가가 회원님의 글을 좋아합니다.",
       data: {
@@ -4893,21 +4864,18 @@ export const onBambooPostLikeCreated = onDocumentCreated(
       },
     });
 
-    await createInAppNotification(postAuthorId, {
+    await createInAppNotification(postOwnerUid, {
       type: "community_post_like",
       title: "내 글에 좋아요가 눌렸어요",
       body: "누군가가 회원님의 글을 좋아합니다.",
       deeplinkType: "community_post",
       deeplinkId: postId,
-      actorId: likerUserId,
-      actorName: likerInfo.nickname,
+      actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
       postId,
     });
 
     logger.info("Community post like push + in-app notification sent", {
       postId,
-      postAuthorId,
-      likerUserId,
       existingCount: existingCount + 1,
     });
   }
@@ -5009,7 +4977,6 @@ export const onMatchUpdated = onDocumentUpdated(
           text: "매칭이 해제되었습니다.",
           content: "매칭이 해제되었습니다.",
           type: "system",
-          readBy: [],
           createdAt: FieldValue.serverTimestamp(),
         });
 
@@ -5158,7 +5125,6 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
             placeCategory: promiseData.placeCategory ?? null,
             status: "completed",
             completionMode: "auto_without_goodbye_stamp",
-            readBy: [],
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
             dateTime: FieldValue.serverTimestamp(),
@@ -5509,32 +5475,42 @@ export const sendDailyUnreadChatDigests = onSchedule(
 
     logger.info("sendDailyUnreadChatDigests started", { digestDate });
 
-    const usersSnap = await db.collection("users").get();
+    // P0-2: the digest is derived from room-level unreadCounts (one paged
+    // query over active rooms, no message documents) instead of users × rooms
+    // × every message. Delivery is idempotent per user and day through a
+    // deterministic in-app notification id.
+    const { targets, roomsScanned } = await collectDailyUnreadDigest(db);
+    logger.info("sendDailyUnreadChatDigests collected", {
+      digestDate,
+      roomsScanned,
+      users: targets.size,
+    });
 
-    for (const userDoc of usersSnap.docs) {
-      const userId = userDoc.id;
-
+    const notificationId = chatDigestNotificationId(digestDate);
+    for (const [userId, target] of targets) {
       try {
-        const alreadySent = await hasChatDigestForDate(userId, digestDate);
-        if (alreadySent) {
-          logger.info("Skipped chat digest: already sent today", {
-            userId,
-            digestDate,
-          });
-          continue;
-        }
-
-        const { unreadCount, previewSenderName } =
-          await getUnreadChatDigestForUser(userId);
-
-        if (unreadCount <= 0) {
-          continue;
-        }
-
         const title = "읽지 않은 메시지가 있어요";
-        const body = previewSenderName
-          ? `${previewSenderName}님 외 읽지 않은 메시지가 ${unreadCount}개 있습니다.`
-          : `읽지 않은 메시지가 ${unreadCount}개 있습니다.`;
+        const body = target.previewSenderName
+          ? `${target.previewSenderName}님 외 읽지 않은 메시지가 ${target.unreadCount}개 있습니다.`
+          : `읽지 않은 메시지가 ${target.unreadCount}개 있습니다.`;
+
+        // The in-app record is the idempotency anchor: create it first with a
+        // deterministic id; a retried run finds it and skips the push too.
+        const created = await createInAppNotification(
+          userId,
+          {
+            type: "chat_digest",
+            title,
+            body,
+            deeplinkType: "chat",
+            digestDate,
+          },
+          notificationId
+        );
+        if (!created) {
+          logger.info("Skipped chat digest: already sent today", { userId, digestDate });
+          continue;
+        }
 
         await sendPushToUsers([userId], {
           title,
@@ -5544,17 +5520,9 @@ export const sendDailyUnreadChatDigests = onSchedule(
           },
         });
 
-        await createInAppNotification(userId, {
-          type: "chat_digest",
-          title,
-          body,
-          deeplinkType: "chat",
-          digestDate,
-        });
-
         logger.info("Daily unread chat digest sent", {
           userId,
-          unreadCount,
+          unreadCount: target.unreadCount,
           digestDate,
         });
       } catch (error) {

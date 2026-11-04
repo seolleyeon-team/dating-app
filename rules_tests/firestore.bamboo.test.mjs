@@ -23,7 +23,6 @@ const BOB = "kakao_bob";
 function seedPost(db, overrides = {}) {
   return setDoc(doc(db, "bamboo_posts", "post1"), {
     postId: "post1",
-    authorId: BOB,
     content: "hello",
     category: "free",
     tags: [],
@@ -96,12 +95,11 @@ test("clients cannot set an arbitrary likeCount or score7d", async () => {
   );
 });
 
-test("comment likeCount also requires a ±1 delta", async () => {
+test("comment likeCount moves only with the caller's comment-like document (P0-3)", async () => {
   await withClearedDb(async (db) => {
     await seedPost(db);
     await setDoc(doc(db, "bamboo_posts", "post1", "comments", "c1"), {
       commentId: "c1",
-      authorId: BOB,
       content: "hi",
       likeCount: 2,
       isDeleted: false,
@@ -110,12 +108,23 @@ test("comment likeCount also requires a ±1 delta", async () => {
   });
   const alice = await kakaoSession(ALICE);
 
-  await assertSucceeds(
+  // Counter alone (no like document) used to pass in the production root.
+  await assertFails(
     updateDoc(doc(alice, "bamboo_posts", "post1", "comments", "c1"), {
       likeCount: increment(1),
       updatedAt: new Date().toISOString(),
     })
   );
+  const batch = writeBatch(alice);
+  batch.set(doc(alice, "bamboo_posts", "post1", "comments", "c1", "likes", ALICE), {
+    userId: ALICE,
+    createdAt: new Date().toISOString(),
+  });
+  batch.update(doc(alice, "bamboo_posts", "post1", "comments", "c1"), {
+    likeCount: increment(1),
+    updatedAt: new Date().toISOString(),
+  });
+  await assertSucceeds(batch.commit());
   await assertFails(
     updateDoc(doc(alice, "bamboo_posts", "post1", "comments", "c1"), {
       likeCount: 500,

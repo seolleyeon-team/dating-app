@@ -15,10 +15,10 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/community/post_model.dart';
-import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../providers/community_provider.dart';
+import '../../chat/providers/chat_unread_provider.dart';
 import '../widgets/community_post_delete_flow.dart';
 import '../widgets/community_report_block_flow.dart';
 import '../widgets/falling_leaves_overlay.dart';
@@ -46,7 +46,6 @@ class CommunityScreen extends StatefulWidget {
 
 class _CommunityScreenState extends State<CommunityScreen> {
   final ScrollController _scrollController = ScrollController();
-  final ChatService _chatService = ChatService();
   String? _currentUserId;
 
   @override
@@ -67,21 +66,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   Future<void> _deletePost(PostModel post) async {
-    if (!isCommunityPostOwner(
-      currentUserId: _currentUserId,
-      authorId: post.authorId,
-    )) {
-      return;
-    }
+    // "내 글" 판단은 비공개 소유권 매핑 조회 결과다. 서버도 다시 확인한다.
+    if (!context.read<CommunityProvider>().isMine(post.postId)) return;
 
     final confirmed = await confirmCommunityPostDeletion(context);
     if (!confirmed || !mounted) return;
 
     try {
-      await context.read<CommunityProvider>().deletePost(
-        postId: post.postId,
-        authorId: _currentUserId!,
-      );
+      await context.read<CommunityProvider>().deletePost(postId: post.postId);
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -97,15 +89,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Future<void> _reportPost(PostModel post) async {
     final userId = _currentUserId;
     if (userId == null || userId.isEmpty) return;
-    await showCommunityReportAndBlockFlow(
+    final provider = context.read<CommunityProvider>();
+    await showCommunityReportFlow(
       context: context,
-      reporterId: userId,
-      reportedUserId: post.authorId,
-      source: 'bamboo_post',
-      contentType: 'bamboo_post',
-      contentId: post.postId,
+      targetLabel: '글',
+      submit: (reason) =>
+          provider.reportPost(postId: post.postId, reason: reason),
     );
-    if (mounted) await context.read<CommunityProvider>().refreshCurrentTab();
   }
 
   @override
@@ -241,10 +231,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               for (int i = 0; i < posts.length; i++) ...[
                                 _PostCard(
                                   post: posts[i],
-                                  isOwner: isCommunityPostOwner(
-                                    currentUserId: _currentUserId,
-                                    authorId: posts[i].authorId,
-                                  ),
+                                  isOwner: provider.isMine(posts[i].postId),
                                   onDelete: () => _deletePost(posts[i]),
                                   onReport: () => _reportPost(posts[i]),
                                   categoryColor: _getCategoryColor(
@@ -343,16 +330,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   showChatBadge: false,
                 )
               else
-                StreamBuilder<bool>(
-                  stream: _chatService.hasAnyUnreadChats(_currentUserId!),
-                  builder: (context, snapshot) {
-                    final hasUnread = snapshot.data == true;
-                    return SeolleyeonBottomNavPositioned(
-                      currentTab: BottomNavTab.community,
-                      onTap: widget.onNavTap,
-                      showChatBadge: hasUnread,
-                    );
-                  },
+                SeolleyeonBottomNavPositioned(
+                  currentTab: BottomNavTab.community,
+                  onTap: widget.onNavTap,
+                  showChatBadge: context
+                      .watch<ChatUnreadProvider>()
+                      .hasAnyUnread,
                 ),
             ],
           ),

@@ -14,7 +14,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/auth_service.dart';
-import '../../chat/services/chat_service.dart';
+import '../../chat/providers/chat_unread_provider.dart';
 import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
@@ -37,7 +37,6 @@ class _MyPageScreenState extends State<MyPageScreen> {
   final _userService = UserService();
   final _friendService = FriendService();
   final _storageService = StorageService();
-  final ChatService _chatService = ChatService();
   final AskService _askService = AskService();
   String? _currentUserId;
   bool _isInvitingFriends = false;
@@ -336,18 +335,14 @@ class _MyPageScreenState extends State<MyPageScreen> {
                   },
                   showChatBadge: false,
                 )
-              : StreamBuilder<bool>(
-                  stream: _chatService.hasAnyUnreadChats(_currentUserId!),
-                  builder: (context, snapshot) {
-                    final hasUnread = snapshot.data == true;
-                    return SeolleyeonBottomNavPositioned(
-                      currentTab: BottomNavTab.profile,
-                      onTap: (index) {
-                        widget.onNavTap?.call(index);
-                      },
-                      showChatBadge: hasUnread,
-                    );
+              : SeolleyeonBottomNavPositioned(
+                  currentTab: BottomNavTab.profile,
+                  onTap: (index) {
+                    widget.onNavTap?.call(index);
                   },
+                  showChatBadge: context
+                      .watch<ChatUnreadProvider>()
+                      .hasAnyUnread,
                 ),
         ],
       ),

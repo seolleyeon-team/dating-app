@@ -2188,7 +2188,6 @@ export async function appendSystemMessage(
     senderId: "system",
     text,
     type: "system",
-    readBy: [],
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });

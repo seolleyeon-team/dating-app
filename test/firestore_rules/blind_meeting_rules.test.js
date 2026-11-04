@@ -497,7 +497,7 @@ describe("단체 채팅", () => {
     await assertSucceeds(
       addDoc(
         collection(authed(A1), "chat_rooms", `blind_${MEETING_ID}`, "messages"),
-        { senderId: A1, text: "안녕하세요", type: "text", readBy: [A1] }
+        { senderId: A1, text: "안녕하세요", type: "text" }
       )
     );
   });
@@ -511,7 +511,7 @@ describe("단체 채팅", () => {
           `blind_${MEETING_ID}`,
           "messages"
         ),
-        { senderId: OUTSIDER, text: "안녕하세요", type: "text", readBy: [] }
+        { senderId: OUTSIDER, text: "안녕하세요", type: "text" }
       )
     );
   });
@@ -520,7 +520,7 @@ describe("단체 채팅", () => {
     await assertFails(
       addDoc(
         collection(authed(A1), "chat_rooms", `blind_${MEETING_ID}`, "messages"),
-        { senderId: B1, text: "위조", type: "text", readBy: [] }
+        { senderId: B1, text: "위조", type: "text" }
       )
     );
   });
@@ -543,7 +543,7 @@ describe("단체 채팅", () => {
     await assertFails(
       addDoc(
         collection(authed(A1), "chat_rooms", `blind_${MEETING_ID}`, "messages"),
-        { senderId: A1, text: "닫힌 뒤", type: "text", readBy: [A1] }
+        { senderId: A1, text: "닫힌 뒤", type: "text" }
       )
     );
     await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -574,7 +574,7 @@ describe("단체 채팅", () => {
     await assertFails(
       addDoc(
         collection(authed(A1), "chat_rooms", `blind_${MEETING_ID}`, "messages"),
-        { senderId: A1, text: "교체 이후", type: "text", readBy: [A1] }
+        { senderId: A1, text: "교체 이후", type: "text" }
       )
     );
   });

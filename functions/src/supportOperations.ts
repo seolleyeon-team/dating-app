@@ -167,7 +167,6 @@ async function createOrReuseSupportRoom(params: {
         ...params.initialMessage,
         text,
         senderId: "system",
-        readBy: [],
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -337,7 +336,6 @@ export function createSupportOperationsCallables(deps: SupportOperationsDependen
           submittedBy: user.userId,
           submittedAt: FieldValue.serverTimestamp(),
         },
-        readBy: [],
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });

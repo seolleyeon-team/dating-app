@@ -273,12 +273,12 @@ test("현재 release rules는 server-mediated create를 유지하고 Phase D fix
   // remains a separate pre-cutover Phase D candidate.
   assert.match(
     deployedBamboo,
-    /match \/bamboo_posts\/\{postId\}[\s\S]*?allow create: if false;/,
+    /match \/bamboo_posts\/\{postId\}[\s\S]*?allow create(?:, delete)?: if false;/,
     "deployed rules must keep public post creation server-only",
   );
   assert.match(
     deployedBamboo,
-    /match \/comments\/\{commentId\}[\s\S]*?allow create: if false;/,
+    /match \/comments\/\{commentId\}[\s\S]*?allow create(?:, delete)?: if false;/,
     "deployed rules must keep public comment creation server-only",
   );
 });

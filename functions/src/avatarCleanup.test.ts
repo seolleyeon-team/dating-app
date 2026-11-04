@@ -545,3 +545,17 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     false,
   );
 });
+
+test("P0-3: account deletion removes the user's Bamboo report-hide entries", () => {
+  const docs = accountDeletionDocsFromParts({
+    bambooHiddenContentIds: ["post_1", "post_1__comment_2"],
+  });
+  const operations = planAccountDeletionPiiOperations({ uid: "u1", docs });
+  assert.deepEqual(
+    operations.filter((op) => op.kind === "deleteBambooHiddenContent"),
+    [
+      { kind: "deleteBambooHiddenContent", key: "post_1" },
+      { kind: "deleteBambooHiddenContent", key: "post_1__comment_2" },
+    ],
+  );
+});

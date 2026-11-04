@@ -68,6 +68,15 @@ SECRET_KEY_PATTERN = re.compile(
 ENV_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 ENV_READ_PATTERN = re.compile(r"process\.env(?:\.([A-Z][A-Z0-9_]*)|\[\"([A-Z][A-Z0-9_]*)\"\])")
+# The avatar modules read most of their configuration through small helpers
+# (`envValue("APPROVED_AVATAR_BUCKET", fallback)`, `truthyEnv("...")`) that
+# index process.env by a variable name. The direct pattern above never saw
+# those keys, so a bucket or queue variable could be dropped without a
+# missing_required finding. Only these exact helper names are recognised; a
+# bare quoted ALL_CAPS string is not treated as an environment read.
+ENV_HELPER_READ_PATTERN = re.compile(
+    r"\b(?:envValue|truthyEnv|requireEnv|optionalEnv|readEnv)\(\s*\"([A-Z][A-Z0-9_]*)\""
+)
 
 
 class GuardError(RuntimeError):
@@ -132,6 +141,7 @@ def required_env_keys_from_source(source_dir: Path) -> set[str]:
         text = path.read_text(encoding="utf-8", errors="replace")
         for direct, bracketed in ENV_READ_PATTERN.findall(text):
             keys.add(direct or bracketed)
+        keys.update(ENV_HELPER_READ_PATTERN.findall(text))
     return keys - set(PLATFORM_MANAGED_KEYS)
 
 

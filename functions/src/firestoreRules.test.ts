@@ -242,7 +242,7 @@ test("canonical app session gates the interactive surfaces (auth re-architecture
   );
   assertContains(
     "bamboo post create is server-only so moderation cannot be bypassed",
-    "match /bamboo_posts/{postId} { allow get, list: if isSignedIn() && !isPlayReviewSession(); // New public posts are written exclusively by createCommunityPost so // server-side moderation cannot be bypassed. allow create: if false;"
+    "match /bamboo_posts/{postId} { allow get, list: if isSignedIn() && !isPlayReviewSession(); allow create, delete: if false;"
   );
 });
 
@@ -256,8 +256,8 @@ test("Google Play review Bamboo Forest has a separate root and review-only gate"
     "match /playReviewBambooPosts/{postId} { allow get, list: if isPlayReviewSession();"
   );
   assertContains(
-    "review post creation requires the review partition marker",
-    "request.resource.data.dataPartition == 'play_review';"
+    "review like creation requires the review partition marker",
+    "request.resource.data.dataPartition == 'play_review' && likeParentMoves(reviewBambooPostPath(postId), 1);"
   );
   assertContains(
     "review Bamboo ownership maps cannot be read by ordinary sessions",
@@ -297,6 +297,26 @@ test("F8: users create has no email-verified branch (account creation is server-
   assertContains(
     "the email-verified UPDATE branch must remain for legacy verification",
     "hasVerifiedYonseiEmail() && writesOwnStudentEmail(request.resource.data) && studentEmailIsUnboundOrMine(resource.data) && request.resource.data.isStudentVerified == true"
+  );
+  // P0-1: that branch must bind the target document to the server-issued
+  // emailLinkTokens doc; a verified mailbox alone names no account.
+  assertContains(
+    "the email-verified UPDATE branch must be bound to the server-issued token",
+    "emailLinkTokenBindsCallerTo( kakaoUserId, request.resource.data.get('studentEmailLinkToken', null) ) && studentEmailBindingNamesTarget(kakaoUserId) && usersDocKakaoIdOk(request.resource.data, kakaoUserId)"
+  );
+  // P0-1 uniqueness: the hosted write is honoured only when the server-made
+  // reservation (studentEmailBindings/{sha256(email)}) names the target.
+  assertContains(
+    "the hosted write must be gated on the server-owned mailbox binding",
+    "function studentEmailBindingNamesTarget(kakaoUserId) { return exists(studentEmailBindingPath()) && get(studentEmailBindingPath()).data.get('appUserId', null) == kakaoUserId; }"
+  );
+  assertContains(
+    "the binding path must hash the normalized session mailbox exactly like the server",
+    "studentEmailBindings/$(hashing.sha256(request.auth.token.email.lower()).toHexString().lower())"
+  );
+  assertContains(
+    "studentEmailBindings must stay server-only",
+    "match /studentEmailBindings/{emailHash} { allow read, write: if false; }"
   );
 });
 
@@ -387,9 +407,14 @@ test("chat rooms keep participantIds immutable and message updates scoped", () =
   ]) {
     assertContains("chat message rule includes " + condition, condition);
   }
+  assert.equal(
+    rules.includes("onlyMessageReadReceiptUpdate"),
+    false,
+    "P0-2 retirement: no per-message read-receipt update branch remains"
+  );
   assertContains(
-    "plain text messages cannot be rewritten except for read receipts",
-    "function onlyMessageReadReceiptUpdate() { return request.resource.data.diff(resource.data).affectedKeys() .hasOnly(['readBy', 'updatedAt']); }"
+    "message updates are promise lifecycle updates or the transitional own-uid receipt append (NEW-18)",
+    "function canUpdateChatMessage(roomId) { return isExistingChatRoomParticipant(roomId) && (legacyOwnReceiptAppend() || onlyPromiseMessageLifecycleUpdate()); }"
   );
   assertContains(
     "promise lifecycle updates must preserve the original sender identity",

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -294,6 +295,27 @@ test("F8 regression: an email-link session still stamps verification on an EXIST
       kakaoUserId: "app_user_fresh_5000",
       nickname: "새 사용자",
     });
+    // P0-1: the write is only honoured for the account the server-issued
+    // token names (sendStudentVerificationEmail, Admin SDK).
+    await setDoc(doc(db, "emailLinkTokens", "fresh-token-id"), {
+      email: "fresh@yonsei.ac.kr",
+      kakaoUserId: "app_user_fresh_5000",
+      createdAt: Timestamp.now(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 30 * 60 * 1000),
+    });
+    // ...and reserves the mailbox for that account in the same transaction
+    // (studentEmailBindings/{sha256(email)}, P0-1 uniqueness).
+    const emailHash = createHash("sha256")
+      .update("fresh@yonsei.ac.kr", "utf8")
+      .digest("hex");
+    await setDoc(doc(db, "studentEmailBindings", emailHash), {
+      appUserId: "app_user_fresh_5000",
+      emailHash,
+      status: "pending",
+      expiresAt: Timestamp.fromMillis(Date.now() + 30 * 60 * 1000),
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
   });
   const db = await emailLinkSession("emaillink_fresh", "fresh@yonsei.ac.kr");
 
@@ -304,6 +326,7 @@ test("F8 regression: an email-link session still stamps verification on an EXIST
         kakaoUserId: "app_user_fresh_5000",
         isStudentVerified: true,
         studentEmail: "fresh@yonsei.ac.kr",
+        studentEmailLinkToken: "fresh-token-id",
         verifiedAt: Timestamp.now(),
       },
       { merge: true }

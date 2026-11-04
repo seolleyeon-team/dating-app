@@ -4,39 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/features/community/widgets/community_post_delete_flow.dart';
 
 void main() {
-  group('isCommunityPostOwner', () {
-    test('supports a legacy numeric Kakao app user id', () {
-      expect(
-        isCommunityPostOwner(
-          currentUserId: '1234567890',
-          authorId: '1234567890',
-        ),
-        isTrue,
-      );
-    });
-
-    test('supports a new primary-email Firebase uid', () {
-      expect(
-        isCommunityPostOwner(
-          currentUserId: 'firebase-email-uid',
-          authorId: 'firebase-email-uid',
-        ),
-        isTrue,
-      );
-    });
-
-    test('rejects missing or different identities', () {
-      expect(
-        isCommunityPostOwner(currentUserId: null, authorId: 'writer'),
-        isFalse,
-      );
-      expect(
-        isCommunityPostOwner(currentUserId: 'reader', authorId: 'writer'),
-        isFalse,
-      );
-    });
-  });
-
   testWidgets('delete requires both menu selection and confirmation', (
     tester,
   ) async {

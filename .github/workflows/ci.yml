@@ -46,6 +46,91 @@ jobs:
         env:
           FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
 
+  security-emulators:
+    # P0-1 (2026-10 production audit): the student-email binding invariant is
+    # proven only against the real Firestore engine (sequential AND concurrent
+    # double-claims, issuance reservation, primary-flow interplay). `npm test`
+    # runs *.test.js only, so these *.emulator-test.js suites never ran in CI.
+    # firebase-tools 15 requires JDK 21; the version is pinned to the one the
+    # guarded deploy script uses. Security tests must fail the build: no
+    # continue-on-error here.
+    name: Firebase security emulator tests (functions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - run: npm ci
+        working-directory: functions
+      # CI-only output directory (never the developer-owned functions/lib);
+      # it stays under functions/ so compiled files resolve node_modules.
+      # Run from functions/ so `npx tsc` resolves the project's TypeScript;
+      # at the repo root npx fetches the unrelated `tsc` npm package (first
+      # real run of this job, PR #147, failed exactly that way).
+      - name: Build functions into a CI-only output directory
+        run: npx tsc -p . --outDir .ci-emulator-lib
+        working-directory: functions
+      - name: P0-1 binding + reservation atomicity (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p01-binding
+          "node --test functions/.ci-emulator-lib/studentEmailBinding.emulator-test.js functions/.ci-emulator-lib/studentEmailReservation.emulator-test.js"
+      - name: P0-1 issuance reservation (Firestore + Auth emulators)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,auth
+          --project demo-p01-binding
+          "node --test functions/.ci-emulator-lib/studentEmailIssuance.emulator-test.js"
+      # P0-2: room-level unread accounting — sequential/concurrent increments,
+      # at-least-once trigger idempotency, mark-read race, backfill
+      # idempotency/resume, digest without message reads, and the deployed
+      # trigger wiring through index.ts. The cost assertions are the same ones
+      # that fail against the legacy query shapes (CHAT_UNREAD_PORT=legacy).
+      - name: P0-2 chat unread accounting (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p02-chat
+          "node --test functions/.ci-emulator-lib/chatUnread.emulator-test.js functions/.ci-emulator-lib/chatUnreadTrigger.emulator-test.js"
+      # Deployment-drift regression: the September behaviour of
+      # onInteractionCreated (partition / operations-account guard) and
+      # autoCompleteExpiredGoodbyeSafetyStamps (participant narrowing) that
+      # went live with the 2026-10-25 redeploys, pinned on the real handlers.
+      - name: Deployment drift regression (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p02-chat
+          "node --test functions/.ci-emulator-lib/deploymentDriftRegression.emulator-test.js"
+      # Blind-meeting replacement search (both scheduled ticks run it): fill
+      # by same-gender FIFO candidate, concurrent ticks fill once, deadline
+      # cancellation refunds remaining members once, matching deferral.
+      - name: Blind meeting replacement search (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-blind-replacement
+          "node --test functions/.ci-emulator-lib/blindMeeting/automaticReplacement.emulator-test.js"
+      # P0-3: Bamboo Forest anonymity on the real handlers — authorless public
+      # writers, anonymous notifications (no actor uid/nickname), mapping-only
+      # fail-closed ownership, delete/report callables, no authorship oracle.
+      - name: P0-3 Bamboo anonymity and moderation (Firestore + Auth emulators)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,auth
+          --project demo-p03-bamboo
+          "node --test functions/.ci-emulator-lib/bambooPrivacy.emulator-test.js"
+      # P0-3: the historical-data redaction migration — dry-run writes
+      # nothing, verified records only, conflicts/unverifiable stop, mapping
+      # creation for auth-only legacy accounts, idempotency, canary limit.
+      - name: P0-3 Bamboo privacy migration (Firestore + Auth emulators)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,auth
+          --project demo-p03-migration
+          "node --test scripts/bamboo_privacy_migration.test.mjs scripts/bamboo_privacy_migration.emulator-test.mjs"
+
   storage-rules:
     name: Storage rules tests
     runs-on: ubuntu-latest

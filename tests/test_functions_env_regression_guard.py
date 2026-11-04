@@ -189,3 +189,38 @@ def test_an_added_variable_is_reported():
     added = [f for f in blocked.findings if f.kind == "added"]
     assert [f.key for f in added] == ["AVATAR_UPLOAD_ALLOWED_UIDS"]
     assert declared.ok
+
+
+def test_helper_form_env_reads_are_required_keys(tmp_path):
+    # avatarMedia/avatarApproval/avatarCleanup read buckets and queue names via
+    # envValue("KEY", fallback) / truthyEnv("KEY"); those keys were invisible
+    # to the direct process.env pattern, so dropping APPROVED_AVATAR_BUCKET
+    # raised no missing_required finding.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.ts").write_text(
+        'const bucket = envValue("APPROVED_AVATAR_BUCKET", "fallback");\n'
+        'const kill = truthyEnv("AVATAR_COST_KILL_SWITCH_ENABLED");\n'
+        'const status = "FAILED"; // a bare constant is not an env read\n'
+        "const direct = process.env.JOB_QUEUE_MODE;\n",
+        encoding="utf-8",
+    )
+    (src / "a.test.ts").write_text(
+        'envValue("ONLY_IN_TESTS", "x");\n', encoding="utf-8"
+    )
+
+    keys = required_env_keys_from_source(src)
+
+    assert keys == {
+        "APPROVED_AVATAR_BUCKET",
+        "AVATAR_COST_KILL_SWITCH_ENABLED",
+        "JOB_QUEUE_MODE",
+    }
+
+
+def test_real_source_helper_reads_are_detected():
+    keys = required_env_keys_from_source(REPO_ROOT / "functions" / "src")
+
+    assert "APPROVED_AVATAR_BUCKET" in keys
+    assert "AVATAR_COST_KILL_SWITCH_ENABLED" in keys
+    assert "GCP_LOCATION" in keys

@@ -45,7 +45,6 @@ async function seedChatRoom(db) {
     senderId: ALICE,
     type: "text",
     text: "original evidence",
-    readBy: [ALICE],
   });
   await setDoc(doc(db, "chat_rooms", ROOM, "messages", "m_promise"), {
     senderId: ALICE,
@@ -54,7 +53,6 @@ async function seedChatRoom(db) {
     status: "requested",
     place: "신촌",
     placeCategory: "cafe",
-    readBy: [ALICE],
   });
   await setDoc(doc(db, "chat_rooms", ROOM, "promises", PROMISE), {
     promiseId: PROMISE,
@@ -119,13 +117,34 @@ test("a participant cannot reassign senderId on a text message", async () => {
   );
 });
 
-test("a recipient can mark a message as read", async () => {
+test("P0-2 retirement: per-message receipts are tolerated only as an old build's own-uid append (NEW-18), nothing else", async () => {
   await withClearedDb(seedChatRoom);
   const bob = await kakaoSession(BOB);
 
-  await assertSucceeds(
+  // Anything but "append exactly my uid" is refused: replacing the list,
+  // naming another user, or touching another field alongside.
+  await assertFails(
     updateDoc(doc(bob, "chat_rooms", ROOM, "messages", "m_text"), {
       readBy: [ALICE, BOB],
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(bob, "chat_rooms", ROOM, "messages", "m_text"), {
+      readBy: [ALICE],
+      updatedAt: new Date(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(bob, "chat_rooms", ROOM, "messages", "m_text"), {
+      readBy: [BOB],
+      text: "rewritten",
+    })
+  );
+  // Transitional: the old build's own receipt append (seed has no readBy → [BOB]).
+  await assertSucceeds(
+    updateDoc(doc(bob, "chat_rooms", ROOM, "messages", "m_text"), {
+      readBy: [BOB],
       updatedAt: new Date(),
     })
   );
@@ -134,8 +153,39 @@ test("a recipient can mark a message as read", async () => {
   const snap = await assertSucceeds(
     getDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_text"))
   );
-  assert.deepEqual(snap.data().readBy, [ALICE, BOB]);
   assert.equal(snap.data().text, "original evidence");
+});
+
+test("P0-2 retirement: a promise message is accepted without readBy; with readBy only as the old build's own uid (NEW-18)", async () => {
+  await withClearedDb(seedChatRoom);
+  const alice = await kakaoSession(ALICE);
+  const base = {
+    senderId: ALICE,
+    type: "promise_request",
+    text: "약속 요청",
+    promiseId: "promise_new",
+    status: "requested",
+    place: "신촌",
+    placeCategory: "cafe",
+    isEdited: false,
+    editedAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  await assertSucceeds(setDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_promise_new"), base));
+  // Transitional tolerance (NEW-18): exactly [own uid], as the old build writes it.
+  await assertSucceeds(
+    setDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_promise_old_build"), { ...base, readBy: [ALICE] })
+  );
+  await assertFails(
+    setDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_promise_forged_1"), { ...base, readBy: [BOB] })
+  );
+  await assertFails(
+    setDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_promise_forged_2"), { ...base, readBy: [ALICE, BOB] })
+  );
+  await assertFails(
+    setDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_promise_forged_3"), { ...base, readBy: [] })
+  );
 });
 
 test("an existing promise message can move through its lifecycle", async () => {

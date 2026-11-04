@@ -320,6 +320,56 @@ def test_bootstrap_parameter_discovery_and_guard_precede_the_exact_deploy():
     assert 'FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS"' in wrapper
 
 
+def test_failure_policy_override_is_opt_in_single_target_and_the_only_force():
+    """`--force` (needed for a function declaring `retry: true`) is reachable
+    only through `--allow-failure-policy FUNCTION`, after the single-target
+    checks, and the default command line never carries it."""
+    wrapper = (SCRIPTS_DIR / "deploy_functions_guarded.sh").read_text(encoding="utf-8")
+
+    assert 'FAILURE_POLICY_FUNCTION=""' in wrapper
+    assert "FAILURE_POLICY_SINGLE_TARGET_REQUIRED" in wrapper
+    assert "FAILURE_POLICY_TARGET_MISMATCH" in wrapper
+    forced = 'deploy --only "$TARGETS" --project "$PROJECT" --non-interactive --force'
+    plain = 'deploy --only "$TARGETS" --project "$PROJECT" --non-interactive\n'
+    assert wrapper.count(forced) == 1
+    assert wrapper.count(plain) == 1
+    code_lines_with_force = [
+        line
+        for line in wrapper.splitlines()
+        if "--force" in line and not line.lstrip().startswith(("#", "echo "))
+    ]
+    # exactly one executable line passes --force: the guarded deploy line
+    assert len(code_lines_with_force) == 1
+    assert forced in code_lines_with_force[0]
+    # the forced branch is guarded by the override variable
+    branch = wrapper[wrapper.rindex('if [ -n "$FAILURE_POLICY_FUNCTION" ]; then', 0, wrapper.index(forced)) : wrapper.index(forced)]
+    assert "else" not in branch
+    # the override checks run before any contract / guard / build step
+    assert wrapper.index("FAILURE_POLICY_TARGET_MISMATCH") < wrapper.index("deploy_functions_guarded_contract.py")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["--allow-failure-policy", "otherFunction", FUNCTION], "FAILURE_POLICY_TARGET_MISMATCH"),
+        (["--allow-multiple-functions", "--allow-failure-policy", FUNCTION, FUNCTION, "otherFunction"], "FAILURE_POLICY_SINGLE_TARGET_REQUIRED"),
+        (["--allow-failure-policy", FUNCTION, FUNCTION, "otherFunction"], "FAILURE_POLICY_SINGLE_TARGET_REQUIRED"),
+        (["--allow-failure-policy", "a/b", "a/b"], "FAILURE_POLICY_TARGET_INVALID"),
+    ],
+)
+def test_wrapper_refuses_misdeclared_failure_policy_targets_before_any_check(argv, message, tmp_path):
+    completed = subprocess.run(
+        ["bash", str(SCRIPTS_DIR / "deploy_functions_guarded.sh"), "--project", "p", "--region", "r", "--env-file", str(tmp_path / "missing.env"), *argv],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert message in completed.stderr
+    assert "ENV DEPLOY CONTRACT" not in completed.stdout
+
+
 def test_multi_function_target_requires_explicit_opt_in():
     with pytest.raises(contract.DeployContractError, match="MULTI_FUNCTION"):
         contract.validate_function_targets([FUNCTION, "otherFunction"])
@@ -578,3 +628,220 @@ def test_wrapper_refuses_dotenv_mutation_after_guard(tmp_path):
     assert completed.returncode != 0
     assert "GUARDED_ENV_CHANGED_AFTER_GUARD" in completed.stderr
     assert not deploy_log.exists()
+
+
+# ---------------------------------------------------------------------------
+# Tracked key manifest (OPS-02, 2026-10): the gitignored dotenv must carry
+# exactly the codebase's plain keys, never a Secret Manager parameter.
+# ---------------------------------------------------------------------------
+
+
+def _manifest(root: Path, keys: list[str], secrets: list[str] | None = None) -> Path:
+    scripts = root / "scripts"
+    scripts.mkdir(exist_ok=True)
+    path = scripts / f"functions_env_key_manifest.{PROJECT}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "contract_version": 1,
+                "project": PROJECT,
+                "plain_env_keys": keys,
+                "secret_parameter_names": secrets or ["RESEND_API_KEY"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_dotenv_matching_the_key_manifest_passes(tmp_path):
+    root, candidate = _root(tmp_path)
+    manifest = _manifest(root, ["RESEND_FROM_EMAIL", "RESEND_REPLY_TO"])
+
+    result = _validate(root, candidate)
+
+    assert result.key_manifest == manifest
+
+
+def test_without_a_manifest_the_contract_is_unchanged(tmp_path):
+    root, candidate = _root(tmp_path)
+
+    assert _validate(root, candidate).key_manifest is None
+
+
+def test_an_incomplete_dotenv_is_refused_before_any_deploy(tmp_path):
+    # The 2026-10-13 shape: a local file missing keys that are live in
+    # production. Deploying it would delete them.
+    root, candidate = _root(tmp_path)
+    _manifest(root, ["RESEND_FROM_EMAIL", "RESEND_REPLY_TO", "JOB_QUEUE_MODE"])
+
+    with pytest.raises(contract.DeployContractError, match="MISMATCH.*missing: JOB_QUEUE_MODE"):
+        _validate(root, candidate)
+
+
+def test_an_undeclared_extra_key_is_refused(tmp_path):
+    root, candidate = _root(tmp_path)
+    _manifest(root, ["RESEND_FROM_EMAIL"])
+
+    with pytest.raises(contract.DeployContractError, match="MISMATCH.*extra: RESEND_REPLY_TO"):
+        _validate(root, candidate)
+
+
+def test_a_secret_parameter_as_plaintext_is_refused(tmp_path):
+    root, candidate = _root(tmp_path)
+    candidate.write_text(
+        candidate.read_text(encoding="utf-8") + "RESEND_API_KEY=plaintext\n",
+        encoding="utf-8",
+    )
+    _manifest(root, ["RESEND_FROM_EMAIL", "RESEND_REPLY_TO", "RESEND_API_KEY"])
+
+    with pytest.raises(contract.DeployContractError, match="ENV_SECRET_AS_PLAINTEXT_REFUSED"):
+        _validate(root, candidate)
+
+
+def test_key_names_are_read_without_values_being_reported(tmp_path):
+    root, candidate = _root(tmp_path)
+    _manifest(root, ["RESEND_FROM_EMAIL"])
+
+    with pytest.raises(contract.DeployContractError) as excinfo:
+        _validate(root, candidate)
+
+    assert "mail@example.com" not in str(excinfo.value)
+    assert "reply@example.com" not in str(excinfo.value)
+
+
+def test_repository_manifest_matches_the_live_contract_shape():
+    manifest = contract.key_manifest_path(REPO_ROOT / "firebase.json", PROJECT)
+
+    assert manifest.is_file()
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    assert data["project"] == PROJECT
+    assert len(data["plain_env_keys"]) == len(set(data["plain_env_keys"]))
+    assert data["plain_env_keys"] == sorted(data["plain_env_keys"])
+    assert not set(data["plain_env_keys"]) & set(data["secret_parameter_names"])
+    # Secret parameters declared in source must all be listed as secrets.
+    source = (REPO_ROOT / "functions" / "src").rglob("*.ts")
+    declared = set()
+    import re
+
+    for path in source:
+        if path.name.endswith(".test.ts"):
+            continue
+        declared |= set(re.findall(r'defineSecret\("([A-Z0-9_]+)"', path.read_text(encoding="utf-8")))
+    assert declared <= set(data["secret_parameter_names"])
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["--new-function", "deleteCommunityPost", "cleanupAvatarMedia"], "NEW_FUNCTION_NOT_A_TARGET"),
+        (["--new-function", "bad-name", "bad-name"], "NEW_FUNCTION_NAME_INVALID"),
+        (
+            ["--new-function", "cleanupAvatarMedia", "--allow-failure-policy", "cleanupAvatarMedia", "cleanupAvatarMedia"],
+            "NEW_FUNCTION_MODE_CONFLICT",
+        ),
+    ],
+)
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+def test_wrapper_refuses_misdeclared_new_functions_before_any_check(argv, message, tmp_path):
+    completed = subprocess.run(
+        ["bash", str(SCRIPTS_DIR / "deploy_functions_guarded.sh"), "--project", "p", "--region", "r", "--env-file", str(tmp_path / "missing.env"), *argv],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert message in completed.stderr
+
+
+def _install_fake_gcloud_with_absent(bin_dir: Path, absent_service: str, deployed_marker: Path) -> None:
+    gcloud = bin_dir / "gcloud"
+    gcloud.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        f"if {absent_service!r} in sys.argv and not os.path.exists({str(deployed_marker)!r}):\n"
+        f"    sys.stderr.write('ERROR: (gcloud.run.services.describe) Cannot find service [{absent_service}]')\n"
+        "    sys.exit(1)\n"
+        "target = 'deleteCommunityPost' if " + repr(absent_service) + " in sys.argv else 'cleanupAvatarMedia'\n"
+        "print(json.dumps({'spec': {'template': {'spec': {'containers': ["
+        "{'env': ["
+        "{'name': 'RESEND_FROM_EMAIL', 'value': 'mail@example.com'},"
+        "{'name': 'RESEND_REPLY_TO', 'value': 'reply@example.com'},"
+        "{'name': 'FIREBASE_CONFIG', 'value': '{}'},"
+        "{'name': 'GCLOUD_PROJECT', 'value': 'seolleyeon-final'},"
+        "{'name': 'EVENTARC_CLOUD_EVENT_SOURCE', 'value': 'source'},"
+        "{'name': 'FUNCTION_REGION', 'value': 'asia-northeast3'},"
+        "{'name': 'FUNCTION_TARGET', 'value': target},"
+        "{'name': 'LOG_EXECUTION_ID', 'value': 'true'}"
+        "]}]}}}}))\n",
+        encoding="utf-8",
+    )
+    gcloud.chmod(gcloud.stat().st_mode | stat.S_IXUSR)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+def test_declared_new_function_must_be_absent_and_is_guarded_after_deploy(tmp_path):
+    root, candidate = _root(tmp_path)
+    scripts = root / "scripts"
+    scripts.mkdir()
+    for name in (
+        "deploy_functions_guarded.sh",
+        "deploy_functions_guarded_contract.py",
+        "functions_env_regression_guard.py",
+    ):
+        (scripts / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+    (root / "functions" / "node_modules").mkdir()
+    _install_fake_tsc(root)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "deployed"
+    _install_fake_gcloud_with_absent(bin_dir, "deletecommunitypost", marker)
+    deploy_log = tmp_path / "npx-deploy.log"
+    npx = bin_dir / "npx"
+    npx.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$3\" = \"--version\" ]; then\n"
+        "  printf '15.30.2\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\n' \"$*\" >> '{deploy_log}'\n"
+        f"touch '{marker}'\n",
+        encoding="utf-8",
+    )
+    npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
+    _install_fake_npm(bin_dir)
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+
+    base = [
+        "bash", str(scripts / "deploy_functions_guarded.sh"),
+        "--project", PROJECT, "--region", "asia-northeast3",
+        "--env-file", str(candidate.relative_to(root)),
+        "--allow-multiple-functions",
+    ]
+    # Without the declaration the absent service makes the pre-deploy guard fail.
+    undeclared = subprocess.run(base + ["cleanupAvatarMedia", "deleteCommunityPost"], cwd=root, env=env, capture_output=True, text=True, check=False)
+    assert undeclared.returncode != 0
+    assert not deploy_log.exists()
+
+    completed = subprocess.run(
+        base + ["--new-function", "deleteCommunityPost", "cleanupAvatarMedia", "deleteCommunityPost"],
+        cwd=root, env=env, capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "deleteCommunityPost is new" in completed.stdout
+    assert deploy_log.read_text(encoding="utf-8").strip() == (
+        "-y firebase-tools@15.30.2 deploy --only functions:cleanupAvatarMedia,functions:deleteCommunityPost "
+        "--project seolleyeon-final --non-interactive"
+    )
+    # post-deploy comparison covered both targets (the new one now exists)
+    assert completed.stdout.count("ENV REGRESSION GUARD: PASS") == 2
+
+    # Once it exists, declaring it new again is refused before any deploy.
+    again = subprocess.run(
+        base + ["--new-function", "deleteCommunityPost", "deleteCommunityPost"],
+        cwd=root, env=env, capture_output=True, text=True, check=False,
+    )
+    assert again.returncode != 0
+    assert "NEW_FUNCTION_ALREADY_EXISTS" in again.stderr

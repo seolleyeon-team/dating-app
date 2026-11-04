@@ -2,78 +2,104 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// SEC-04 Phase A.
+/// P0-3 / SEC-04 — 대나무숲 클라이언트 소스 계약.
 ///
-/// 대나무숲 글/댓글에 raw UID 가 public `authorId` 로 남아 있고
-/// `publicProfiles/{uid}` 는 로그인만 하면 읽힌다. join 한 번이면 익명 글의
-/// 작성자를 특정할 수 있다는 뜻이라, 최종적으로는 public 에서 authorId 를
-/// 지워야 한다. 그때 "내가 쓴 글" 을 잃지 않으려면 소유권이 미리 비공개
-/// 매핑에 들어와 있어야 한다.
+/// (이전 Phase A 계약 — 클라이언트가 public authorId 와 매핑을 같이 쓴다 — 은
+/// 글/댓글 작성이 서버 callable 로 옮겨지면서 이미 사실이 아니었다. 이 파일은
+/// 최종 계약으로 바뀌었다.)
 ///
-/// 이 저장소에는 Firestore 를 흉내내는 테스트 기반이 없어서, 다른 보안 회귀
-/// 테스트와 같은 방식으로 소스 계약을 고정한다.
+/// public 대나무숲 문서에는 작성자가 없다. 클라이언트는 작성자 UID 를 읽지도,
+/// 쓰지도, 서버에 보내지도 않는다. "내 글" 은 본인만 읽을 수 있는 비공개 매핑으로만
+/// 알고, 삭제·신고는 서버 callable 이 매핑으로 판정한다. 이 저장소에는 Firestore
+/// 를 흉내내는 테스트 기반이 없어 다른 보안 회귀 테스트처럼 소스 계약을 고정한다.
 void main() {
-  final source = File(
+  String read(String path) => File(path).readAsStringSync();
+  String code(String path) => read(
+    path,
+  ).split('\n').where((line) => !line.trimLeft().startsWith('//')).join('\n');
+
+  final repo = code(
     'lib/data/repositories/firestore_community_repository.dart',
-  ).readAsStringSync();
+  );
+  final iface = code('lib/data/repositories/community_repository.dart');
+  final model = code('lib/data/models/community/post_model.dart');
+  final provider = code(
+    'lib/features/community/providers/community_provider.dart',
+  );
+  final screens = [
+    code('lib/features/community/screens/community_screen.dart'),
+    code('lib/features/community/screens/post_detail_screen.dart'),
+    code('lib/features/community/screens/post_write_screen.dart'),
+    code('lib/features/community/widgets/community_report_block_flow.dart'),
+  ].join('\n');
 
-  test('글은 소유권 매핑과 한 번에 커밋된다', () {
-    // 따로 쓰면 둘 중 하나만 성공한 상태가 생기고, 나중에 public authorId 를
-    // 지울 때 주인 없는 글이 된다.
-    expect(source.contains("collection('bamboo_post_authors')"), isTrue);
-    expect(
-      source.contains('_firestore.batch()'),
-      isTrue,
-      reason: 'post and ownership mapping must be written atomically',
-    );
-    expect(
-      RegExp(r'batch\.set\(_postAuthors\.doc\(').hasMatch(source),
-      isTrue,
-      reason: 'the mapping must be part of the same batch as the post',
-    );
-    expect(
-      source.contains('await docRef.set({'),
-      isFalse,
-      reason: 'a standalone post write would leave the mapping behind',
-    );
+  test('어떤 대나무숲 클라이언트 코드도 authorId 를 읽거나 쓰지 않는다', () {
+    for (final entry in {
+      'repository': repo,
+      'interface': iface,
+      'model': model,
+      'provider': provider,
+      'screens': screens,
+    }.entries) {
+      expect(entry.value.contains('authorId'), isFalse, reason: entry.key);
+    }
   });
 
-  test('댓글은 소유권 매핑과 같은 트랜잭션에서 커밋된다', () {
-    expect(source.contains("collection('bamboo_comment_authors')"), isTrue);
+  test('"내가 쓴 글" 은 비공개 매핑(ownerUid == 본인)으로만 찾는다', () {
+    expect(repo.contains("'bamboo_post_authors'"), isTrue);
     expect(
-      // 포맷터가 줄을 바꿀 수 있으므로 공백에 관대하게 본다.
       RegExp(
-        r'transaction\s*\.set\(\s*_commentAuthors\.doc\(',
-      ).hasMatch(source),
+        r"_postAuthors\s*\.where\('ownerUid', isEqualTo: uid\)",
+      ).hasMatch(repo),
       isTrue,
-      reason: 'the comment mapping must ride the comment transaction',
     );
-  });
-
-  test('댓글 매핑 id 는 글 id 를 포함한다', () {
-    // commentId 는 글 안에서만 유일하다. 글 id 를 빼면 다른 글의 댓글끼리
-    // 매핑이 충돌한다.
-    expect(source.contains(r"'${postId}__$commentId'"), isTrue);
-  });
-
-  test('매핑에는 ownerUid 만 담고 public authorId 를 중복해 넣지 않는다', () {
-    expect(source.contains("'ownerUid': authorIdStr"), isTrue);
     expect(
-      source.contains("'authorId': authorIdStr,\n      'ownerUid'"),
-      isFalse,
-      reason: 'the private mapping must not duplicate the public identity',
-    );
-  });
-
-  test('Phase A 는 public authorId 를 아직 지우지 않는다', () {
-    // 구버전 앱이 아직 이 필드로 "내가 쓴 글" 을 찾는다. 여기서 지우면
-    // 업데이트하지 않은 사용자의 글 목록이 빈다.
-    expect(source.contains("'authorId': authorIdStr"), isTrue);
-    expect(source.contains("'authorId': authorId,"), isTrue);
-    expect(
-      source.contains(".where('authorId', isEqualTo: uid)"),
+      repo.contains(
+        "_commentAuthors\n        .where('ownerUid', isEqualTo: uid)",
+      ),
       isTrue,
-      reason: 'Phase A keeps the legacy my-posts query',
     );
+  });
+
+  test('작성·삭제·신고는 서버 callable 로만 한다', () {
+    for (final callable in [
+      'createCommunityPost',
+      'createCommunityComment',
+      'deleteCommunityPost',
+      'deleteCommunityComment',
+      'reportBambooContent',
+    ]) {
+      expect(
+        repo.contains("httpsCallable('$callable')"),
+        isTrue,
+        reason: callable,
+      );
+    }
+    // 클라이언트가 isDeleted 를 직접 쓰지 않는다 (rules 도 거부한다).
+    expect(repo.contains("'isDeleted': true"), isFalse);
+    expect(repo.contains("'commentCount'"), isFalse);
+  });
+
+  test('실명 차단 목록으로 익명 글을 거르지 않고, 신고가 실명 차단을 만들지 않는다', () {
+    // "누군가를 차단하고 어떤 글이 사라지는지 본다" 는 작성자 특정 오라클이 된다.
+    expect(repo.contains('ContactBlockService'), isFalse);
+    expect(repo.contains('getBlockedUserIds'), isFalse);
+    expect(screens.contains('blockAndReportUser'), isFalse);
+    expect(screens.contains('reportedUserId'), isFalse);
+    expect(repo.contains('bambooHiddenContent'), isTrue);
+  });
+
+  test('좋아요는 로그인한 본인 이름으로만 쓰고 읽는다', () {
+    expect(
+      RegExp(r"userId\.trim\(\) != _uid").allMatches(repo).length,
+      greaterThanOrEqualTo(4),
+      reason:
+          'toggle/hasLiked for posts and comments are bound to the session uid',
+    );
+  });
+
+  test('provider 는 계정이 바뀌면 캐시를 버린다', () {
+    expect(provider.contains('_resetIfAccountChanged'), isTrue);
+    expect(provider.contains('_myPostIds.clear()'), isTrue);
   });
 }

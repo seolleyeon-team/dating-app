@@ -24,4 +24,20 @@ paths = [
   # remain in history on integration lineages.
   '''festival_web/web/firebase-messaging-sw\.js''',
   '''festival_web/web/index\.html''',
+  # Tracked build output of the same retired festival client (the public web
+  # config above, compiled). Removal of the build directory is backlog work.
+  '''festival_web/build/web/firebase-messaging-sw\.js''',
+  '''festival_web/build/web/index\.html''',
+  '''festival_web/build/web/main\.dart\.js''',
+  # Same rationale as ios/Podfile.lock: dependency checksums.
+  '''macos/Podfile\.lock''',
+  # Synthetic fixture identifiers (SECRET_UID / SECRET_REQUEST_ID) used to
+  # prove that logs hash, not echo, user identifiers.
+  '''functions/src/avatarGenerationRecovery\.test\.ts''',
+]
+# A backup *file name* mentioned in the audit backlog (`.env.seolleyeon-final
+# .bak-p01-<date>`) trips generic-api-key; the file itself is untracked and the
+# name carries no credential.
+regexes = [
+  '''\.env\.seolleyeon-final\.bak-[A-Za-z0-9-]+''',
 ]
