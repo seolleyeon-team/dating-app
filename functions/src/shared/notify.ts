@@ -258,6 +258,18 @@ export type InAppNotificationPayload = {
   sessionId?: string;
 };
 
+/** 행위자가 익명이어야 하는 알림 종류 (대나무숲). */
+export const ANONYMOUS_COMMUNITY_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
+  "community_post_like",
+  "community_comment",
+  "community_reply",
+]);
+export const ANONYMOUS_COMMUNITY_ACTOR_NAME = "익명";
+
+export function isAnonymousCommunityNotificationType(type: string): boolean {
+  return ANONYMOUS_COMMUNITY_NOTIFICATION_TYPES.has(type);
+}
+
 /**
  * 인앱 알림 생성.
  *
@@ -269,6 +281,15 @@ export async function createInAppNotification(
   notificationId?: string
 ): Promise<boolean> {
   if (!userId) return false;
+
+  // P0-3: 대나무숲(익명 게시판) 알림은 받는 사람이 읽는 문서다. 행위자 UID 나
+  // 닉네임이 들어가면 익명 작성자가 특정된다. 호출부가 무엇을 넘기든 여기서
+  // 다시 지운다 — 공용 writer 가 실수로 되살리지 못하게 하는 마지막 관문이다.
+  const anonymousActor = isAnonymousCommunityNotificationType(payload.type);
+  const actorId = anonymousActor ? null : payload.actorId ?? null;
+  const actorName = anonymousActor
+    ? ANONYMOUS_COMMUNITY_ACTOR_NAME
+    : payload.actorName ?? null;
 
   const collection = db()
     .collection("users")
@@ -296,8 +317,8 @@ export async function createInAppNotification(
     isRead: false,
     createdAt: FieldValue.serverTimestamp(),
 
-    actorId: payload.actorId ?? null,
-    actorName: payload.actorName ?? null,
+    actorId,
+    actorName,
     postId: payload.postId ?? null,
     commentId: payload.commentId ?? null,
     roomId: payload.roomId ?? null,

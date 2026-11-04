@@ -66,8 +66,8 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         ChangeNotifierProvider<ThemeProvider>(create: (_) => ThemeProvider()),
         ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
         ChangeNotifierProvider<CommunityProvider>(
-          create: (ctx) =>
-              CommunityProvider(authProvider: ctx.read<AuthProvider>()),
+          // 로그인 계정이 바뀌면 provider 가 스스로 이전 계정의 목록을 버린다.
+          create: (_) => CommunityProvider(),
         ),
         // P0-2: the ONE chat unread source for every tab badge and chat-list
         // row. Follows the signed-in app user; logout (appUserId == null)

@@ -242,7 +242,7 @@ test("canonical app session gates the interactive surfaces (auth re-architecture
   );
   assertContains(
     "bamboo post create is server-only so moderation cannot be bypassed",
-    "match /bamboo_posts/{postId} { allow get, list: if isSignedIn() && !isPlayReviewSession(); // New public posts are written exclusively by createCommunityPost so // server-side moderation cannot be bypassed. allow create: if false;"
+    "match /bamboo_posts/{postId} { allow get, list: if isSignedIn() && !isPlayReviewSession(); allow create, delete: if false;"
   );
 });
 
@@ -256,8 +256,8 @@ test("Google Play review Bamboo Forest has a separate root and review-only gate"
     "match /playReviewBambooPosts/{postId} { allow get, list: if isPlayReviewSession();"
   );
   assertContains(
-    "review post creation requires the review partition marker",
-    "request.resource.data.dataPartition == 'play_review';"
+    "review like creation requires the review partition marker",
+    "request.resource.data.dataPartition == 'play_review' && likeParentMoves(reviewBambooPostPath(postId), 1);"
   );
   assertContains(
     "review Bamboo ownership maps cannot be read by ordinary sessions",

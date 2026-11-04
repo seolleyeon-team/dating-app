@@ -180,6 +180,11 @@ export function buildReportAndBlockPlan(params: {
   };
 }
 
+export function isBambooContentReport(contentType: unknown, source: unknown): boolean {
+  const values = [contentType, source].map((v) => (typeof v === "string" ? v.trim() : ""));
+  return values.some((v) => v.startsWith("bamboo"));
+}
+
 function getCallableData(request: CallableRequest<unknown>): Record<string, unknown> {
   return isRecord(request.data) ? request.data : {};
 }
@@ -193,6 +198,18 @@ export function createReportAndBlockUserFunction(
     async (request): Promise<Record<string, unknown>> => {
       const user = await resolveUser(request);
       const data = getCallableData(request);
+
+      // P0-3: 대나무숲 콘텐츠는 익명이다. 여기서 "클라이언트가 보낸 UID 가 이 글의
+      // 작성자인가" 를 검사하면 그 자체가 작성자 확인 오라클이 되고, 이 callable
+      // 이 만드는 양방향 차단 문서는 신고자에게 작성자 UID 를, 작성자에게 신고자
+      // UID 를 알려 준다. 대나무숲 신고는 reportBambooContent 만 받는다. 어떤
+      // 조회보다 먼저 거부해 응답으로 아무것도 시험할 수 없게 한다.
+      if (isBambooContentReport(data.contentType, data.source)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "대나무숲 신고는 앱을 업데이트한 뒤 다시 시도해주세요."
+        );
+      }
 
       const plan = buildReportAndBlockPlan({
         reporterUid: user.userId,
@@ -226,32 +243,10 @@ export function createReportAndBlockUserFunction(
         );
       }
 
-      // A content report must identify real content belonging to the reported
-      // account. This prevents a caller from attaching an unrelated post or
-      // comment ID to make operations evidence misleading.
-      const source = plan.reportData.source;
-      const contentType = plan.reportData.contentType;
-      const contentId = plan.reportData.contentId;
-      const parentContentId = plan.reportData.parentContentId;
-      if (contentType === "bamboo_post" && source === "bamboo_post") {
-        const posts = reporterPartition === "play_review"
-          ? "playReviewBambooPosts" : "bamboo_posts";
-        const content = await firestore.collection(posts).doc(String(contentId)).get();
-        if (!content.exists || content.get("authorId") !== plan.reportedUid) {
-          throw new HttpsError("not-found", "신고할 게시글을 찾을 수 없어요.");
-        }
-      } else if (contentType === "bamboo_comment" && source === "bamboo_comment") {
-        if (!parentContentId) {
-          throw new HttpsError("invalid-argument", "postId is required for a comment report.");
-        }
-        const posts = reporterPartition === "play_review"
-          ? "playReviewBambooPosts" : "bamboo_posts";
-        const content = await firestore.collection(posts).doc(String(parentContentId))
-          .collection("comments").doc(String(contentId)).get();
-        if (!content.exists || content.get("authorId") !== plan.reportedUid) {
-          throw new HttpsError("not-found", "신고할 댓글을 찾을 수 없어요.");
-        }
-      } else if (contentType != null || contentId != null) {
+      // The only content reports this callable ever verified were Bamboo
+      // posts/comments, which now go through reportBambooContent. Any other
+      // content reference cannot be checked, so it is refused.
+      if (plan.reportData.contentType != null || plan.reportData.contentId != null) {
         throw new HttpsError("invalid-argument", "unsupported content report.");
       }
 

@@ -474,6 +474,8 @@ export async function applySocialCleanupOperation(
         {
           isDeleted: true,
           content: "[삭제된 게시글]",
+          // P0-3: a legacy public author field must not outlive the account.
+          authorId: FieldValue.delete(),
           updatedAt: now,
         },
         { merge: true }
@@ -500,6 +502,7 @@ export async function applySocialCleanupOperation(
           {
             isDeleted: true,
             content: "[삭제된 댓글]",
+            authorId: FieldValue.delete(),
             updatedAt: now,
           },
           { merge: true }

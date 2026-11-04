@@ -18,6 +18,14 @@
 # A declaration authorises exactly that key and exactly that operation. Any
 # other difference still refuses the deploy.
 #
+# --new-function FUNCTION
+#   Declares that FUNCTION (also named as a deploy target) has never been
+#   deployed: its Cloud Run service must be absent, or the deploy is refused.
+#   It is left out of the pre-deploy comparison only (there is no live
+#   environment to regress); the post-deploy comparison still covers every
+#   target with no declarations, so the new service's environment must equal
+#   the env file exactly. Repeat once per new function.
+#
 # --allow-failure-policy FUNCTION
 #   The Firebase CLI refuses to deploy an event function that declares
 #   `retry: true` unless `--force` is passed. This opt-in adds exactly that,
@@ -37,6 +45,7 @@ FAILURE_POLICY_FUNCTION=""
 BOOTSTRAP_MANIFEST=""
 ALLOWED=()
 FUNCTIONS=()
+NEW_FUNCTIONS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -58,6 +67,7 @@ while [ $# -gt 0 ]; do
       fi
       BOOTSTRAP_MANIFEST="$2"
       shift 2 ;;
+    --new-function) NEW_FUNCTIONS+=("$2"); shift 2 ;;
     --allow-remove-key) ALLOWED+=(--allow-remove-key "$2"); shift 2 ;;
     --allow-add-key) ALLOWED+=(--allow-add-key "$2"); shift 2 ;;
     --allow-change-key) ALLOWED+=(--allow-change-key "$2"); shift 2 ;;
@@ -91,6 +101,27 @@ if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
     exit 2
   fi
   echo "[deploy] failure-policy override requested for $FAILURE_POLICY_FUNCTION: the function declares retry, the CLI requires --force"
+fi
+
+if [ "${#NEW_FUNCTIONS[@]}" -gt 0 ]; then
+  if [ -n "$BOOTSTRAP_MANIFEST" ] || [ -n "$FAILURE_POLICY_FUNCTION" ]; then
+    echo "NEW_FUNCTION_MODE_CONFLICT: --new-function cannot be combined with bootstrap or failure-policy mode" >&2
+    exit 2
+  fi
+  for new_fn in "${NEW_FUNCTIONS[@]}"; do
+    if ! [[ "$new_fn" =~ ^[A-Za-z][A-Za-z0-9]*$ ]]; then
+      echo "NEW_FUNCTION_NAME_INVALID: $new_fn" >&2
+      exit 2
+    fi
+    found=0
+    for fn in "${FUNCTIONS[@]}"; do
+      [ "$fn" = "$new_fn" ] && found=1
+    done
+    if [ "$found" -ne 1 ]; then
+      echo "NEW_FUNCTION_NOT_A_TARGET: $new_fn is declared new but is not a deploy target" >&2
+      exit 2
+    fi
+  done
 fi
 
 if [ -n "$BOOTSTRAP_MANIFEST" ]; then
@@ -143,6 +174,42 @@ for fn in "${FUNCTIONS[@]}"; do
   GUARD_ARGS+=(--function "$fn")
 done
 
+is_new_function() {
+  local candidate="$1" new_fn
+  for new_fn in "${NEW_FUNCTIONS[@]}"; do
+    [ "$new_fn" = "$candidate" ] && return 0
+  done
+  return 1
+}
+# Pre-deploy comparison: existing services only. A declared new function must
+# not exist yet — if it does, it has a live environment that must be guarded.
+PRE_GUARD_ARGS=(
+  --project "$PROJECT"
+  --region "$REGION"
+  --env-file "$ENV_FILE"
+  --source-dir "$FUNCTIONS_SOURCE/src"
+)
+PRE_GUARD_COUNT=0
+for fn in "${FUNCTIONS[@]}"; do
+  if is_new_function "$fn"; then
+    service="$(printf '%s' "$fn" | tr '[:upper:]' '[:lower:]')"
+    if described="$(gcloud run services describe "$service" --project "$PROJECT" --region "$REGION" --format=json 2>&1)"; then
+      echo "NEW_FUNCTION_ALREADY_EXISTS: $fn has a Cloud Run service; deploy it without --new-function" >&2
+      exit 1
+    fi
+    case "$described" in
+      *"Cannot find service"*|*"could not be found"*|*"NOT_FOUND"*)
+        echo "[deploy] $fn is new: no Cloud Run service (pre-deploy comparison skipped, post-deploy comparison applies)" ;;
+      *)
+        echo "NEW_FUNCTION_ABSENCE_UNPROVEN: could not confirm $fn is absent" >&2
+        exit 1 ;;
+    esac
+  else
+    PRE_GUARD_ARGS+=(--function "$fn")
+    PRE_GUARD_COUNT=$((PRE_GUARD_COUNT + 1))
+  fi
+done
+
 PRE_GUARD_ENV_SHA256="$(python scripts/deploy_functions_guarded_contract.py sha256 \
   --file "$ENV_FILE")"
 DISCOVERY_PARAMS_FILE=""
@@ -177,7 +244,11 @@ if [ -n "$BOOTSTRAP_MANIFEST" ]; then
     --prebuild-source-only
 else
   echo "[deploy] environment regression guard"
-  python scripts/functions_env_regression_guard.py "${GUARD_ARGS[@]}" "${ALLOWED[@]}"
+  if [ "$PRE_GUARD_COUNT" -gt 0 ]; then
+    python scripts/functions_env_regression_guard.py "${PRE_GUARD_ARGS[@]}" "${ALLOWED[@]}"
+  else
+    echo "[deploy] every target is a declared new function: no live environment to compare"
+  fi
 fi
 
 # Match firebase.json's predeploy hook exactly. Do not install dependencies

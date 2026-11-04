@@ -1,23 +1,34 @@
 import 'package:flutter/cupertino.dart';
 
-import '../../../services/interaction_service.dart';
+/// 대나무숲 신고 사유. 서버 `reportBambooContent` 의 허용 목록과 같다.
+const List<String> bambooReportReasons = [
+  '괴롭힘·혐오',
+  '성적 콘텐츠',
+  '스팸·광고',
+  '개인정보 노출',
+  '기타',
+];
 
-Future<void> showCommunityReportAndBlockFlow({
+/// 대나무숲 글/댓글 신고.
+///
+/// P0-3: 익명 작성자의 UID 는 앱이 알지 못한다. 신고는 콘텐츠 id 만 서버에 보내고,
+/// 서버가 비공개 소유권 매핑으로 작성자를 찾아 운영 신고에 남긴다. 신고한 사람에게는
+/// 그 글/댓글을 숨긴다. 실명 기반 차단은 만들지 않는다 — 차단 목록은 본인이 읽을 수
+/// 있어 익명 작성자의 정체를 알려 주게 된다.
+///
+/// [submit] 은 선택한 사유로 신고를 보낸다. 성공하면 true 를 돌려준다.
+Future<bool> showCommunityReportFlow({
   required BuildContext context,
-  required String reporterId,
-  required String reportedUserId,
-  required String source,
-  required String contentType,
-  required String contentId,
-  String? parentContentId,
+  required String targetLabel,
+  required Future<void> Function(String reason) submit,
 }) async {
   final reason = await showCupertinoModalPopup<String>(
     context: context,
     builder: (sheetContext) => CupertinoActionSheet(
-      title: const Text('신고 및 차단'),
-      message: const Text('신고하면 해당 사용자는 차단되고, 대나무숲과 1:1 채팅에서 더 이상 노출되지 않아요.'),
+      title: const Text('신고하기'),
+      message: Text('신고하면 이 $targetLabel은(는) 더 이상 보이지 않고, 운영팀이 검토해요.'),
       actions: [
-        for (final item in const ['괴롭힘·혐오', '성적 콘텐츠', '스팸·광고', '개인정보 노출', '기타'])
+        for (final item in bambooReportReasons)
           CupertinoActionSheetAction(
             onPressed: () => Navigator.of(sheetContext).pop(item),
             child: Text(item),
@@ -30,24 +41,16 @@ Future<void> showCommunityReportAndBlockFlow({
       ),
     ),
   );
-  if (reason == null || !context.mounted) return;
+  if (reason == null || !context.mounted) return false;
 
   try {
-    await InteractionService().blockAndReportUser(
-      fromUserId: reporterId,
-      toUserId: reportedUserId,
-      reason: reason,
-      source: source,
-      contentType: contentType,
-      contentId: contentId,
-      parentContentId: parentContentId,
-    );
-    if (!context.mounted) return;
+    await submit(reason);
+    if (!context.mounted) return true;
     await showCupertinoDialog<void>(
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: const Text('신고가 접수되었어요'),
-        content: const Text('해당 사용자를 차단했어요. 운영팀이 신고 내용을 검토합니다.'),
+        content: Text('이 $targetLabel은(는) 더 이상 보이지 않아요. 운영팀이 신고 내용을 검토합니다.'),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(),
@@ -56,9 +59,10 @@ Future<void> showCommunityReportAndBlockFlow({
         ],
       ),
     );
+    return true;
   } catch (_) {
-    if (!context.mounted) return;
-    showCupertinoDialog<void>(
+    if (!context.mounted) return false;
+    await showCupertinoDialog<void>(
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: const Text('신고하지 못했어요'),
@@ -71,5 +75,6 @@ Future<void> showCommunityReportAndBlockFlow({
         ],
       ),
     );
+    return false;
   }
 }

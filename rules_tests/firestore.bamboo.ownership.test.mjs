@@ -1,5 +1,13 @@
 /**
- * SEC-04 — 대나무숲 비공개 소유권 매핑 규칙 (Phase A).
+ * SEC-04 / P0-3 — 대나무숲 비공개 소유권 매핑 규칙.
+ *
+ * P0-3 최종 계약: 매핑은 글/댓글과 같은 커밋에서 서버(createCommunityPost /
+ * createCommunityComment)만 만든다. 클라이언트 create 경로는 없다 — public
+ * authorId 에 기대던 getAfter 검사는 그 필드가 사라지면 무의미해지고, 남겨 두면
+ * 남의 글에 소유권을 붙이는 통로가 된다. 아래 Phase A 설명은 이력이다.
+ *
+ * 이 파일의 "레거시 문서" 는 마이그레이션 전 상태(public authorId 가 아직 남은
+ * 문서) 다. 전환 중에도 규칙이 그 필드를 근거로 아무 권한도 주지 않는지 본다.
  *
  * public `bamboo_posts/{postId}` 와 그 하위 comments 는 raw authorId(UID)를 담고
  * 있고 로그인 사용자면 누구나 읽을 수 있다. `publicProfiles/{uid}` 도 get 이
@@ -27,6 +35,7 @@ import {
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -94,10 +103,10 @@ test.after(async () => {
   await env.cleanup();
 });
 
-test("작성자는 자기 글의 매핑을 만들 수 있다", async () => {
+test("P0-3: 레거시 authorId 가 남은 글이라도 작성자가 매핑을 직접 만들 수 없다 (서버 전용)", async () => {
   await seedOwnerContent();
   const owner = await kakaoSession(OWNER);
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(owner, POST_MAP, POST), { postId: POST, ownerUid: OWNER })
   );
 });
@@ -220,10 +229,10 @@ test("타인 UID 로 거는 쿼리는 거부", async () => {
   );
 });
 
-test("작성자는 자기 댓글의 매핑을 만들 수 있다", async () => {
+test("P0-3: 작성자도 댓글 매핑을 직접 만들 수 없다 (서버 전용)", async () => {
   await seedOwnerContent();
   const owner = await kakaoSession(OWNER);
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(owner, COMMENT_MAP, commentMapId(POST, COMMENT)), {
       postId: POST,
       commentId: COMMENT,
@@ -312,5 +321,33 @@ test("댓글과 매핑을 직접 쓰는 클라이언트 트랜잭션은 서버 �
         score7d: increment(1),
       });
     })
+  );
+});
+
+test("P0-3 전환: 레거시 authorId 가 남은 글에서도 좋아요 토글은 동작한다 (규칙이 authorId 를 읽지 않는다)", async () => {
+  await seedOwnerContent();
+  const stranger = await kakaoSession(STRANGER);
+  const batch = writeBatch(stranger);
+  batch.set(doc(stranger, "bamboo_posts", POST, "likes", STRANGER), {
+    userId: STRANGER,
+    createdAt: new Date(),
+  });
+  batch.update(doc(stranger, "bamboo_posts", POST), {
+    likeCount: increment(1),
+    score7d: increment(1),
+    updatedAt: new Date(),
+  });
+  await assertSucceeds(batch.commit());
+});
+
+test("P0-3 전환: 레거시 authorId 는 클라이언트가 바꾸거나 지울 수 없고, 권한 근거도 아니다", async () => {
+  await seedOwnerContent();
+  const owner = await kakaoSession(OWNER);
+  await assertFails(updateDoc(doc(owner, "bamboo_posts", POST), { authorId: STRANGER }));
+  await assertFails(updateDoc(doc(owner, "bamboo_posts", POST), { authorId: deleteField() }));
+  // public authorId 가 본인이어도 직접 soft delete 는 안 된다 (deleteCommunityPost 경유).
+  await assertFails(updateDoc(doc(owner, "bamboo_posts", POST), { isDeleted: true }));
+  await assertFails(
+    updateDoc(doc(owner, "bamboo_posts", POST, "comments", COMMENT), { isDeleted: true })
   );
 });
