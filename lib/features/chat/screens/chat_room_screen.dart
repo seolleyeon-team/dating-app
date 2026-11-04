@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../models/promise_place.dart';
 import '../data/promise_campus_places.dart';
+import '../services/chat_send_controller.dart';
 import '../services/chat_service.dart';
 import '../services/message_page_merger.dart';
 import '../services/promise_place_service.dart';
@@ -221,6 +222,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   final ChatService _chatService = ChatService();
+  // P1-11: send-failure draft recovery and idempotent retries.
+  late final ChatSendController _sendController = ChatSendController(
+    send:
+        ({
+          required String roomId,
+          required String senderId,
+          required String text,
+          required String clientMessageId,
+        }) => _chatService.sendTextMessage(
+          roomId: roomId,
+          senderId: senderId,
+          text: text,
+          clientMessageId: clientMessageId,
+        ),
+  );
   final ChatProfilePhotoService _chatProfilePhotoService =
       ChatProfilePhotoService();
 
@@ -552,6 +568,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       _roomId = widget.chatRoomId.isNotEmpty
           ? widget.chatRoomId
           : _chatService.buildDirectRoomId(kakaoUserId, widget.partnerId);
+      // A draft never follows the user into another room or account.
+      _sendController.bindContext(roomId: _roomId, senderId: kakaoUserId);
 
       if (widget.chatRoomId.isNotEmpty) {
         final roomSnapshot = await _chatService.roomStream(_roomId).first;
@@ -758,27 +776,82 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       _isSending = true;
     });
 
-    try {
-      _messageController.clear();
-      _pendingForceScrollToBottom = true;
+    // P1-11: the composer is cleared optimistically, but the attempt is kept
+    // by the controller; on failure the text is restored (unless the user
+    // already typed something new) and a retry re-uses the same
+    // clientMessageId, so a timeout after a server commit cannot duplicate.
+    _messageController.clear();
+    _pendingForceScrollToBottom = true;
 
-      await _chatService.sendTextMessage(
-        roomId: _roomId,
-        senderId: _currentUserId!,
-        text: text,
-      );
+    final result = await _sendController.submit(text);
+    if (!mounted) {
+      _isSending = false;
+      return;
+    }
+    setState(() {
+      _isSending = false;
+    });
 
+    if (result.isSent) {
       widget.onSend?.call(text);
       _scrollToBottom();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-        });
-      } else {
-        _isSending = false;
-      }
+      return;
     }
+    if (result.isFailed) {
+      _restoreFailedDraft();
+      _showSendFailure(result.userMessage ?? '메시지를 보내지 못했어요.');
+    }
+  }
+
+  Future<void> _retrySend() async {
+    if (_isSending || !mounted) return;
+    setState(() => _isSending = true);
+    final pending = _sendController.failedSend;
+    final result = await _sendController.retry();
+    if (!mounted) {
+      _isSending = false;
+      return;
+    }
+    setState(() => _isSending = false);
+    if (result.isSent) {
+      // The restored draft (if still untouched) was just sent.
+      if (pending != null && _messageController.text.trim() == pending.text) {
+        _messageController.clear();
+      }
+      _pendingForceScrollToBottom = true;
+      widget.onSend?.call(pending?.text ?? '');
+      _scrollToBottom();
+    } else if (result.isFailed) {
+      _showSendFailure(result.userMessage ?? '메시지를 보내지 못했어요.');
+    }
+  }
+
+  void _restoreFailedDraft() {
+    final draft = _sendController.draftToRestore(
+      currentInput: _messageController.text,
+    );
+    if (draft == null) return;
+    _messageController.value = TextEditingValue(
+      text: draft,
+      selection: TextSelection.collapsed(offset: draft.length),
+    );
+  }
+
+  void _showSendFailure(String message) {
+    if (!mounted) return;
+    final messenger = material.ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      material.SnackBar(
+        content: Text(message, semanticsLabel: '전송 실패. $message'),
+        behavior: material.SnackBarBehavior.floating,
+        duration: const Duration(seconds: 6),
+        action: _sendController.failedSend == null
+            ? null
+            : material.SnackBarAction(label: '다시 시도', onPressed: _retrySend),
+      ),
+    );
   }
 
   Future<void> _showChatMoreOptions() async {

@@ -140,6 +140,20 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,storage
           --project demo-p15-deletion
           "node --test functions/.ci-emulator-lib/accountDeletion.emulator-test.js"
+      # P1-8: daily unread digest cost at scale — one room document per
+      # active room, zero message documents, paging completeness.
+      - name: P1-8 unread digest scale (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p18-digest
+          "node --test functions/.ci-emulator-lib/chatDigestScale.emulator-test.js"
+      # P1-12: group read state on the P0-2 room-level model — six concurrent
+      # mark-reads, mark-read racing accounting, delayed/duplicate triggers.
+      - name: P1-12 group read state concurrency (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p112-readstate
+          "node --test functions/.ci-emulator-lib/groupReadState.emulator-test.js"
       # Blind-meeting replacement search (both scheduled ticks run it): fill
       # by same-gender FIFO candidate, concurrent ticks fill once, deadline
       # cancellation refunds remaining members once, matching deferral.

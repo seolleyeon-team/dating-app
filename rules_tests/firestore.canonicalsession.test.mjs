@@ -12,7 +12,7 @@ import {
   withClearedDb,
 } from "./helpers.mjs";
 
-import { doc, getDoc, setDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, Timestamp, updateDoc } from "firebase/firestore";
 
 // ---------------------------------------------------------------------------
 // Auth re-architecture (identity-contract §2/§6): the interactive surfaces
@@ -71,7 +71,8 @@ function gatedOps(db, suffix) {
         toUserId: OTHER,
         action: "like",
         source: "daily_recs",
-        createdAt: Timestamp.now(),
+        // P1-10: createdAt must be the server time (what the real client writes).
+        createdAt: serverTimestamp(),
       }),
     createAsk: () =>
       setDoc(doc(db, "asks", `ask_${suffix}`), {

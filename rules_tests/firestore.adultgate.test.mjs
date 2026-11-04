@@ -16,7 +16,7 @@ import {
   withClearedDb,
 } from "./helpers.mjs";
 
-import { Timestamp, doc, setDoc, updateDoc } from "firebase/firestore";
+import { Timestamp, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 
 const VERIFIED = "kakao_verified";
 const UNVERIFIED = "kakao_unverified";
@@ -49,7 +49,7 @@ test.after(async () => {
 });
 
 function like(from, to) {
-  return { fromUserId: from, toUserId: to, action: "like", source: "test", createdAt: new Date() };
+  return { fromUserId: from, toUserId: to, action: "like", source: "test", createdAt: serverTimestamp() };
 }
 
 test("an unverified (or half-verified) account cannot create a like or an ask; a verified one can", async () => {
@@ -60,7 +60,7 @@ test("an unverified (or half-verified) account cannot create a like or an ask; a
   await assertFails(setDoc(doc(un, "interactions", "i1"), like(UNVERIFIED, PEER)));
   await assertFails(setDoc(doc(half, "interactions", "i2"), like(HALF, PEER)));
   await assertSucceeds(setDoc(doc(ok, "interactions", "i3"), like(VERIFIED, PEER)));
-  const ask = (from) => ({ fromUserId: from, toUserId: PEER, text: "질문", status: "sent", createdAt: new Date(), updatedAt: new Date(), readAt: null, sourceScreen: "profile" });
+  const ask = (from) => ({ fromUserId: from, toUserId: PEER, text: "질문", status: "sent", createdAt: serverTimestamp(), updatedAt: serverTimestamp(), readAt: null, sourceScreen: "profile" });
   await assertFails(setDoc(doc(un, "asks", "a1"), ask(UNVERIFIED)));
   await assertSucceeds(setDoc(doc(ok, "asks", "a2"), ask(VERIFIED)));
 });
@@ -106,6 +106,6 @@ test("the review partition is exempt: the fixed reviewer session likes without a
     .firestore();
   await assertSucceeds(setDoc(doc(reviewer, "interactions", "r1"), {
     fromUserId: "play-reviewer-v1", toUserId: "play-fixture-b-01", action: "like", source: "review",
-    createdAt: new Date(), dataPartition: "play_review",
+    createdAt: serverTimestamp(), dataPartition: "play_review",
   }));
 });

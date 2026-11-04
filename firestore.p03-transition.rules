@@ -127,6 +127,63 @@ service cloud.firestore {
           );
     }
 
+    // P1-10: neither side of a block may contact the other through asks or
+    // likes. reportAndBlockUser writes both directions; a one-directional
+    // contact block is enough to refuse.
+    function callerBlockedWith(otherUid) {
+      return exists(/databases/$(database)/documents/blocks/$(request.auth.uid)/targets/$(otherUid)) ||
+          exists(/databases/$(database)/documents/blocks/$(otherUid)/targets/$(request.auth.uid));
+    }
+
+    // P1-10: an ask carries only the question. The former client-supplied
+    // fromUserProfileSnapshot / toUserProfileSnapshot let a sender choose the
+    // nickname and image URL the recipient saw (impersonation; an attacker
+    // URL fetched by the recipient's device). Identity is resolved by the
+    // recipient from publicProfiles/{uid} (server-owned).
+    function askCreateSchemaOk() {
+      return request.resource.data.keys().hasOnly([
+            'fromUserId', 'toUserId', 'text', 'status',
+            'createdAt', 'updatedAt', 'readAt', 'sourceScreen', 'dataPartition'
+          ]) &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 500 &&
+          request.resource.data.status == 'sent' &&
+          request.resource.data.get('readAt', null) == null &&
+          (!request.resource.data.keys().hasAny(['sourceScreen']) ||
+            (request.resource.data.sourceScreen is string &&
+              request.resource.data.sourceScreen.size() <= 64)) &&
+          (!request.resource.data.keys().hasAny(['createdAt']) ||
+            request.resource.data.createdAt == request.time) &&
+          (!request.resource.data.keys().hasAny(['updatedAt']) ||
+            request.resource.data.updatedAt == request.time);
+    }
+
+    // P1-10: the interaction schema. `view` and `message` legitimately repeat;
+    // like / super_like / nope are one-shot decisions (P1-1: the server
+    // deduplicates their effects per pair). metadata is only the chat
+    // message preview the client records on `message`.
+    function interactionCreateSchemaOk() {
+      return request.resource.data.action in ['like', 'super_like', 'nope', 'view', 'message'] &&
+          request.resource.data.source is string &&
+          request.resource.data.source.size() > 0 &&
+          request.resource.data.source.size() <= 64 &&
+          request.resource.data.toUserId != request.auth.uid &&
+          request.resource.data.toUserId.size() <= 128 &&
+          (!request.resource.data.keys().hasAny(['createdAt']) ||
+            request.resource.data.createdAt == request.time) &&
+          (
+            request.resource.data.get('metadata', null) == null ||
+            (
+              request.resource.data.metadata is map &&
+              request.resource.data.metadata.keys().hasOnly(['messagePreview']) &&
+              (!request.resource.data.metadata.keys().hasAny(['messagePreview']) ||
+                (request.resource.data.metadata.messagePreview is string &&
+                  request.resource.data.metadata.messagePreview.size() <= 200))
+            )
+          );
+    }
+
     function isSelf(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
@@ -2549,9 +2606,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         request.resource.data.toUserId.size() > 0 &&
         request.resource.data.toUserId != request.auth.uid &&
         askRecipientPartitionIsValid() &&
-        request.resource.data.text is string &&
-        request.resource.data.text.size() > 0 &&
-        request.resource.data.status == 'sent';
+        !callerBlockedWith(request.resource.data.toUserId) &&
+        askCreateSchemaOk();
 
       allow update: if
         isSignedIn() &&
@@ -2583,6 +2639,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         request.resource.data.action is string &&
         request.resource.data.source is string &&
         interactionPartitionIsValid() &&
+        !callerBlockedWith(request.resource.data.toUserId) &&
+        interactionCreateSchemaOk() &&
         request.resource.data.keys().hasOnly([
           'fromUserId', 'toUserId', 'action', 'source',
           'metadata', 'createdAt', 'dataPartition'

@@ -274,22 +274,57 @@ class _AskCard extends StatelessWidget {
     final status = data['status']?.toString() ?? 'sent';
     final isUnread = isReceived && status == 'sent';
 
-    final snapshotKey = isReceived
-        ? 'fromUserProfileSnapshot'
-        : 'toUserProfileSnapshot';
-    final snapshot = data[snapshotKey] is Map
-        ? Map<String, dynamic>.from(data[snapshotKey] as Map)
-        : <String, dynamic>{};
-
-    final nickname = snapshot['nickname']?.toString() ?? '';
-    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
-    final university = snapshot['universityName']?.toString() ?? '';
     final otherUserId =
         (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
 
     final createdAt = data['createdAt'];
     final timeText = _formatTime(createdAt);
 
+    // P1-10: the counterpart's identity comes from the server-owned public
+    // profile, never from a client-written snapshot on the ask document.
+    return _CounterpartProfile(
+      userService: userService,
+      userId: otherUserId,
+      legacyNickname: AskService.legacyNicknameFallback(
+        data,
+        isReceived: isReceived,
+      ),
+      builder: (context, counterpart) {
+        final nickname = counterpart.nickname;
+        final avatarUrl = counterpart.avatarUrl;
+        final university = counterpart.university;
+        return _buildCard(
+          context,
+          dark: dark,
+          surface: surface,
+          unreadSurface: unreadSurface,
+          border: border,
+          text: text,
+          isUnread: isUnread,
+          nickname: nickname,
+          avatarUrl: avatarUrl,
+          university: university,
+          otherUserId: otherUserId,
+          timeText: timeText,
+        );
+      },
+    );
+  }
+
+  Widget _buildCard(
+    BuildContext context, {
+    required bool dark,
+    required Color surface,
+    required Color unreadSurface,
+    required Color border,
+    required String text,
+    required bool isUnread,
+    required String nickname,
+    required String avatarUrl,
+    required String university,
+    required String otherUserId,
+    required String timeText,
+  }) {
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: () => _showDetail(context, text, isUnread),
@@ -414,6 +449,7 @@ class _AskCard extends StatelessWidget {
         data: data,
         isReceived: isReceived,
         currentUserId: currentUserId,
+        userService: userService,
       ),
     );
   }
@@ -478,30 +514,49 @@ class _AskDetailSheet extends StatelessWidget {
   final bool isReceived;
   final String currentUserId;
 
+  final UserService userService;
+
   const _AskDetailSheet({
     required this.data,
     required this.isReceived,
     required this.currentUserId,
+    required this.userService,
   });
 
   @override
   Widget build(BuildContext context) {
+    final otherUserId =
+        (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
+    return _CounterpartProfile(
+      userService: userService,
+      userId: otherUserId,
+      legacyNickname: AskService.legacyNicknameFallback(
+        data,
+        isReceived: isReceived,
+      ),
+      builder: (context, counterpart) => _buildSheet(
+        context,
+        nickname: counterpart.nickname.isNotEmpty
+            ? counterpart.nickname
+            : '사용자',
+        avatarUrl: counterpart.avatarUrl,
+        university: counterpart.university,
+        otherUserId: otherUserId,
+      ),
+    );
+  }
+
+  Widget _buildSheet(
+    BuildContext context, {
+    required String nickname,
+    required String avatarUrl,
+    required String university,
+    required String otherUserId,
+  }) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final surface = dark ? AppColorsDark.surface : _C.white;
     final softSurface = dark ? const Color(0xFF33212C) : _C.pink50;
     final text = data['text']?.toString() ?? '';
-    final snapshotKey = isReceived
-        ? 'fromUserProfileSnapshot'
-        : 'toUserProfileSnapshot';
-    final snapshot = data[snapshotKey] is Map
-        ? Map<String, dynamic>.from(data[snapshotKey] as Map)
-        : <String, dynamic>{};
-
-    final nickname = snapshot['nickname']?.toString() ?? '사용자';
-    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
-    final university = snapshot['universityName']?.toString() ?? '';
-    final otherUserId =
-        (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
 
     final label = isReceived ? '$nickname님의 질문' : '$nickname님에게 보낸 질문';
 
@@ -604,6 +659,80 @@ class _AskDetailSheet extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// P1-10: counterpart identity from publicProfiles/{uid} (server-owned)
+// =============================================================================
+class _Counterpart {
+  const _Counterpart({
+    required this.nickname,
+    required this.avatarUrl,
+    required this.university,
+  });
+
+  final String nickname;
+  final String avatarUrl;
+  final String university;
+}
+
+class _CounterpartProfile extends StatelessWidget {
+  final UserService userService;
+  final String userId;
+  final String legacyNickname;
+  final Widget Function(BuildContext context, _Counterpart counterpart) builder;
+
+  const _CounterpartProfile({
+    required this.userService,
+    required this.userId,
+    required this.legacyNickname,
+    required this.builder,
+  });
+
+  static _Counterpart fromPublicProfile(
+    Map<String, dynamic>? profile, {
+    required String legacyNickname,
+  }) {
+    if (profile == null) {
+      // Legacy ask documents carry a client-written snapshot: only its text
+      // nickname is a tolerable fallback; an image URL from it never is.
+      return _Counterpart(
+        nickname: legacyNickname,
+        avatarUrl: '',
+        university: '',
+      );
+    }
+    final onboarding = profile['onboarding'];
+    final onboardingMap = onboarding is Map
+        ? Map<String, dynamic>.from(onboarding)
+        : const <String, dynamic>{};
+    final nickname =
+        (onboardingMap['nickname'] ?? profile['nickname'])?.toString().trim() ??
+        '';
+    final university =
+        (onboardingMap['university'] ?? profile['university'])
+            ?.toString()
+            .trim() ??
+        '';
+    return _Counterpart(
+      nickname: nickname.isNotEmpty ? nickname : legacyNickname,
+      avatarUrl: ProfileDisplayImageResolver.resolve(profile),
+      university: university,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: userId.isEmpty
+          ? Future<Map<String, dynamic>?>.value(null)
+          : userService.getPublicProfile(userId).catchError((_) => null),
+      builder: (context, snapshot) => builder(
+        context,
+        fromPublicProfile(snapshot.data, legacyNickname: legacyNickname),
       ),
     );
   }
