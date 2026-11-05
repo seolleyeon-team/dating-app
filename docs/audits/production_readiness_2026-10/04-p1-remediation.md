@@ -304,3 +304,93 @@ per function with the live-archive diff first (NEW-20: never redeploy
 `firestore.rules` after `rules_tests` on the exact file; the transition file
 is regenerated and drift-checked. Expected env guard: 0 removals / 0
 changes / 0 missing / declared additions only for the new function.
+
+## 5. Integration attempt (2026-11-05) — recovery, write-access diagnosis, compatibility
+
+### 5.1 Recovery of the existing work
+- Local branch `claude/tender-tesla-lu2ljk` intact at `3fc228dc`, ten commits
+  `51d51c0f … 3fc228dc`, merge-base with `origin/security/integration` =
+  `09fefca1` (the verified integration SHA); 76 files, +6108/−367, no deletions,
+  no binaries, no unrelated changes. The git bundle (`list-heads` → `3fc228dc`)
+  and the ten-patch series were re-verified and copied into the repository
+  working directory under `.p1-handoff/` (git-excluded) so they survive the
+  session scratchpad: `p1-remediation.bundle`, `patches/0001…0010`.
+- `origin/security/integration` is still `09fefca1`; no P1 commit exists on
+  GitHub.
+
+### 5.2 Exact cause of the push failure (three write routes tested)
+| Route | Result | Meaning |
+|---|---|---|
+| `git push https://github.com/seolleyeon-team/dating-app` | 403 `Claude doesn't have GitHub access to seolleyeon-team/dating-app for your organization` | the git proxy gates writes on the Claude GitHub App installation; the App is not installed / not linked for this organisation's repository |
+| `gh api -X POST …/git/refs` (owner identity `chaehong0`, repo permissions read back as `push: true, admin: true`) | 403 `Write access to this GitHub API path is not permitted through this proxy` | the environment's gh proxy is read-only for Git Data writes by policy, independent of the user's own permission |
+| GitHub MCP `create_branch` (installation token) | 403 `Resource not accessible by integration` | the installation has no `contents: write` on this repository (same class as the earlier `merge_pull_request` refusal) |
+
+Reads work on every route (fetch, `gh api` reads, MCP PR reads). Not a branch
+restriction (the ref does not exist yet) and not an authentication mismatch of
+the user. **Required change:** an organisation admin installs the Claude GitHub
+App on `seolleyeon-team/dating-app` with Contents and Pull requests write
+(https://github.com/apps/claude/installations/select_target), or the owner
+re-links the existing installation from claude.ai → Settings → Connectors →
+GitHub. After that: `git push -u origin claude/tender-tesla-lu2ljk`, open the
+PR to `security/integration`, let CI run. Nothing was force-pushed or merged;
+the branch is **not integrated**.
+
+### 5.3 Production access
+`gcloud` reports `CREDENTIALS_MISSING` for `seolleyeon-final`
+(`cloudresourcemanager`, `cloudfunctions`); no service-account file or
+Firebase token is present. Deployment, live-archive drift audit, Rules ruleset
+ids, the environment guard, the three data audits (token ownership,
+participantInfo residue, adult-verification eligibility), the asks snapshot
+scan, bucket lifecycle review and the controlled production security tests
+were therefore **not executed**. A read-only operator credential supplied as an
+environment secret (e.g. `GOOGLE_APPLICATION_CREDENTIALS` pointing at a
+Firestore-viewer service account) would allow the audits; deploys additionally
+need the owner-run guarded deploy.
+
+### 5.4 Cross-issue deployment compatibility (source analysis)
+- **P1-1.** `onInteractionCreated` and `onRecEventCreated` share
+  `ensureMutualMatch`; deploy both in the same window (a mixed state keeps
+  the old race only between the two until the second deploy; no data shape
+  change, legacy random-id matches stay authoritative).
+- **P1-2.** `clientMessageId` is optional, so installed builds without it
+  keep sending; `sendChatText` and the Rules can be deployed in either order
+  (the callable refuses closed rooms on its own; the Rules only tighten
+  client-created promise cards and room metadata, both already written in the
+  shape the client uses). Promise cards from installed builds carry every
+  required field (`dateTime` included). No window in which normal chat stops.
+- **P1-3.** Order: `onDeviceTokenWritten` (new) → push-sender functions →
+  backfill `--dry-run` → `--apply`. Until the backfill, registrations without
+  a registry record deliver as before (logged); conflicting registrations are
+  resolved to the newest at backfill and, from the trigger deploy on, on each
+  new registration. Logout rotation needs the client release.
+- **P1-7.** Enforcement is a behaviour change for production accounts whose
+  `users` document lacks `adultVerified && realNameVerified`: they already were
+  routed to verification by the client; after the Rules/Functions deploy their
+  likes, asks, chat writes and blind-meeting callables are refused until they
+  verify. The read-only eligibility audit must precede the deploy; the review
+  partition is exempt by construction.
+- **P1-10.** Installed builds still attach `fromUserProfileSnapshot /
+  toUserProfileSnapshot` to asks; after the Rules deploy those creates are
+  refused until the client release. This is intentional (the snapshot is the
+  impersonation / external-image vector) and is listed as a release-coupled
+  behaviour change. Likes/nope/view/message payloads of installed builds match
+  the new schema (`serverTimestamp`, allowlisted actions).
+- **NEW-20.** `reportAndBlockUser` and the Bamboo writers are not among the
+  changed functions and must not be redeployed from this tree.
+
+### 5.5 Re-verification on the recovered commit `3fc228dc` (2026-11-05, fresh runs)
+| Suite | Result |
+|---|---|
+| Functions `npm run lint` / `npm test` | clean / **1152/1152** |
+| `rules_tests` Firestore / Storage | **316/316** / **8/8** |
+| P0-1 binding+reservation / issuance | 14/14 / 6/6 |
+| P0-2 unread + trigger / deployment drift | 35/35 / 4/4 |
+| P1-1 mutualMatch / P1-2 chatSafety / P1-3 pushTokenOwnership | 12/12 / 10/10 / 8/8 |
+| P1-5 accountDeletion (Firestore+Storage) / P1-8 digest scale / P1-12 groupReadState | 4/4 / 3/3 / 5/5 |
+| NEW-19 blind replacement / P0-3 bambooPrivacy / P0-3 migration | 11/11 / 10/10 / 21/21 |
+| Flutter `analyze` / `test` | No issues / **1186 pass, 14 fail** — the identical NEW-13 baseline set, 0 new |
+| Flutter `build web --release` | ✓ Built build/web (the only native-ish compilation available here; no Android SDK/Xcode) |
+
+Rules diff `09fefca1..3fc228dc` adds no new `allow` grant (the only new rule
+is the server-only deny for `pushTokenOwners`); every other change tightens an
+existing condition.
