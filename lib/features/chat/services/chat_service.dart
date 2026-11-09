@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../services/auth_service.dart';
 import '../../../services/firebase_runtime.dart';
@@ -249,16 +250,31 @@ class ChatService {
     });
   }
 
+  /// Sends one text message through the `sendChatText` callable.
+  ///
+  /// [clientMessageId] is a sender-scoped idempotency key (P1-2 / P1-11): the
+  /// server derives the message document id from it, so a retry after a
+  /// timeout — when the first attempt may or may not have committed — lands
+  /// on the same message instead of creating a duplicate. Callers that retry
+  /// must pass the SAME id they used for the first attempt; a new message
+  /// gets a new id (see [newClientMessageId]).
   Future<void> sendTextMessage({
     required String roomId,
     required String senderId,
     required String text,
+    String? clientMessageId,
   }) async {
     await _functions.httpsCallable('sendChatText').call<dynamic>({
       'roomId': roomId,
       'text': text.trim(),
+      if (clientMessageId != null && clientMessageId.isNotEmpty)
+        'clientMessageId': clientMessageId,
     });
   }
+
+  /// A fresh idempotency key for one logical message (matches the server's
+  /// `^[A-Za-z0-9_-]{8,64}$` contract).
+  static String newClientMessageId() => const Uuid().v4();
 
   Future<String> createPromise({
     required String roomId,

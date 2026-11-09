@@ -15,6 +15,7 @@ import 'firebase_runtime.dart';
 import '../shared/utils/privacy_log_utils.dart';
 import 'adult_verification_service.dart';
 import 'storage_service.dart';
+import 'push_notification_service.dart';
 import 'user_service.dart';
 import 'onboarding_route_resolver.dart';
 
@@ -405,6 +406,11 @@ class AuthService {
   /// Signs out both the Firebase session and any Kakao SDK session so a
   /// different next user on this device cannot inherit a stale Kakao token.
   Future<void> signOutAll() async {
+    // P1-3: drop this device's push registration while the account is still
+    // authenticated (the rules let only the owner delete it) and rotate the
+    // FCM token, so the next account on this device never receives this
+    // account's notifications. Bounded and non-blocking inside.
+    await PushNotificationService.instance.unregisterCurrentDevice();
     try {
       await _firebaseAuth.signOut();
     } catch (e) {

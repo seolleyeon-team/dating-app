@@ -52,7 +52,7 @@ async function seedApplicant(seed: Seed, dateKey: string): Promise<void> {
     .collection("users")
     .doc(seed.userId)
     .set({
-      isStudentVerified: true,
+      isStudentVerified: true, adultVerified: true, realNameVerified: true,
       isWithdrawn: false,
       loginDisabled: false,
       nickname: seed.userId,

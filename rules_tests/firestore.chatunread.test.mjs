@@ -5,6 +5,7 @@
 // touch another participant's keys, forge a positive count, or reach these
 // keys through the general room-update branch. Old clients keep writing
 // per-message readBy (retired: refused by the rules since 2026-10-25).
+import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
@@ -20,6 +21,7 @@ import {
 import {
   deleteField,
   doc,
+  getDoc,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -237,4 +239,71 @@ test("P0-2: clients cannot stamp the server-only accounting marker on a message"
       unreadAccountedAt: serverTimestamp(),
     })
   );
+});
+
+// ---------------------------------------------------------------------------
+// P1-12 — group read state: six members, one own-key write each, concurrently.
+// The obsolete per-message readBy array had lost updates; the P0-2 room-level
+// model gives every member an independent key, and the rules let a member
+// touch only its own two keys.
+// ---------------------------------------------------------------------------
+
+const GROUP_ROOM = "season_group_six";
+
+async function seedGroupRoom() {
+  const members = ["kakao_g1", "kakao_g2", "kakao_g3", "kakao_g4", "kakao_g5", "kakao_g6"];
+  await withClearedDb(async (db) => {
+    for (const uid of [...members, OUTSIDER]) await seedActiveUser(db, uid);
+    await setDoc(doc(db, "chat_rooms", GROUP_ROOM), {
+      roomId: GROUP_ROOM,
+      type: "group",
+      roomType: "season_meeting_group",
+      status: "active",
+      writable: true,
+      participantIds: members,
+      participantInfo: Object.fromEntries(members.map((m) => [m, { nickname: m }])),
+      unreadModelVersion: 1,
+      unreadCounts: Object.fromEntries(members.map((m) => [m, 4])),
+      lastMessageAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+  });
+  return members;
+}
+
+test("P1-12: six group members reset their own read state at the same time; nobody's write touches another member", async () => {
+  const members = await seedGroupRoom();
+  const sessions = await Promise.all(members.map((m) => kakaoSession(m)));
+  await Promise.all(
+    sessions.map((session, i) =>
+      assertSucceeds(
+        updateDoc(doc(session, "chat_rooms", GROUP_ROOM), {
+          [`unreadCounts.${members[i]}`]: 0,
+          [`lastReadAt.${members[i]}`]: serverTimestamp(),
+        })
+      )
+    )
+  );
+  const snap = await assertSucceeds(getDoc(doc(sessions[0], "chat_rooms", GROUP_ROOM)));
+  for (const m of members) {
+    assert.equal(snap.data().unreadCounts[m], 0, `${m} reset`);
+    assert.ok(snap.data().lastReadAt[m], `${m} stamped`);
+  }
+});
+
+test("P1-12: a group member cannot reset or stamp another member, cannot touch the model version, and a departed member has no access", async () => {
+  const members = await seedGroupRoom();
+  const g1 = await kakaoSession(members[0]);
+  await assertFails(updateDoc(doc(g1, "chat_rooms", GROUP_ROOM), { [`unreadCounts.${members[1]}`]: 0 }));
+  await assertFails(updateDoc(doc(g1, "chat_rooms", GROUP_ROOM), { [`lastReadAt.${members[1]}`]: serverTimestamp() }));
+  await assertFails(
+    updateDoc(doc(g1, "chat_rooms", GROUP_ROOM), {
+      [`unreadCounts.${members[0]}`]: 0,
+      [`unreadCounts.${members[2]}`]: 0,
+      [`lastReadAt.${members[0]}`]: serverTimestamp(),
+    })
+  );
+  await assertFails(updateDoc(doc(g1, "chat_rooms", GROUP_ROOM), { unreadModelVersion: 2, [`unreadCounts.${members[0]}`]: 0, [`lastReadAt.${members[0]}`]: serverTimestamp() }));
+  const outsider = await kakaoSession(OUTSIDER);
+  await assertFails(updateDoc(doc(outsider, "chat_rooms", GROUP_ROOM), { [`unreadCounts.${OUTSIDER}`]: 0, [`lastReadAt.${OUTSIDER}`]: serverTimestamp() }));
 });

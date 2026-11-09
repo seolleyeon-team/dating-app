@@ -493,34 +493,10 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
       builder: (sheetCtx) => _AskBottomSheet(
         targetName: _profile?.name ?? '상대방',
         onSend: (question) async {
-          final myProfile = await _userService.getUserProfile(uid);
-          final myOnboarding = myProfile?['onboarding'] is Map
-              ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
-              : <String, dynamic>{};
-          final myAvatarUrl = ProfileDisplayImageResolver.resolve(myProfile);
-
-          final fromSnapshot = _askService.buildProfileSnapshot(
-            uid: uid,
-            nickname: myOnboarding['nickname']?.toString(),
-            profileImageUrl: myAvatarUrl.isNotEmpty ? myAvatarUrl : null,
-            universityName: myOnboarding['university']?.toString(),
-          );
-
-          final toSnapshot = _askService.buildProfileSnapshot(
-            uid: targetId,
-            nickname: _profile?.name,
-            profileImageUrl: _profile?.imageUrls.isNotEmpty == true
-                ? _profile!.imageUrls.first
-                : null,
-            universityName: _profile?.university,
-          );
-
           await _askService.sendAsk(
             fromUserId: uid,
             toUserId: targetId,
             text: question,
-            fromUserSnapshot: fromSnapshot,
-            toUserSnapshot: toSnapshot,
           );
 
           _recEventService

@@ -39,13 +39,20 @@ export async function withClearedDb(seed) {
   return env;
 }
 
-/** Minimal server-seeded active account required by the live chat gate. */
+/**
+ * Minimal server-seeded active account required by the live chat gate.
+ * P1-7: dating writes also require the server-written adult-verification
+ * evidence, so the default fixture carries it; tests of the gate itself pass
+ * `adultVerified: false` explicitly.
+ */
 export async function seedActiveUser(db, uid, overrides = {}) {
   await setDoc(doc(db, "users", uid), {
     kakaoUserId: uid,
     isActive: true,
     loginDisabled: false,
     status: "active",
+    adultVerified: true,
+    realNameVerified: true,
     ...overrides,
   });
 }

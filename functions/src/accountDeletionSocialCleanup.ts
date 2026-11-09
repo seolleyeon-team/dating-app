@@ -27,7 +27,14 @@ export type AccountDeletionSocialDocs = {
   friendshipIds: string[];
   friendOtherUids: string[];
   matchIds: string[];
+  /** Rooms with at most two participants: closed on deletion. */
   chatRoomIds: string[];
+  /**
+   * P1-5: group rooms (3:3 season / blind meeting, friend parties). One member
+   * leaving must not close the room for the others; the member is detached
+   * (profile scrubbed, marked) and the room keeps its lifecycle state.
+   */
+  groupChatRoomIds: string[];
   recEventIds: string[];
   bambooPostIds: string[];
   bambooComments: Array<{ postId: string; commentId: string }>;
@@ -47,6 +54,7 @@ export type AccountDeletionSocialCounts = {
   friendEdgesDeleted: number;
   matchesEnded: number;
   chatRoomsClosed: number;
+  groupChatRoomsDetached: number;
   recEventsDeleted: number;
   bambooPostsSoftDeleted: number;
   bambooCommentsSoftDeleted: number;
@@ -64,6 +72,7 @@ export type SocialCleanupOperation =
   | { kind: "deleteFriendEdge"; otherUid: string }
   | { kind: "endMatch"; id: string }
   | { kind: "closeChatRoom"; id: string }
+  | { kind: "detachGroupChatMember"; id: string }
   | { kind: "deleteRecEvent"; id: string }
   | { kind: "deleteRecEventsParent" }
   | { kind: "softDeleteBambooPost"; id: string }
@@ -90,6 +99,14 @@ function requirePathSegment(value: string, field: string): string {
   return segment;
 }
 
+/** A room shared with more than one other person (3:3 meetings, parties). */
+export function isGroupChatRoom(room: Record<string, unknown>): boolean {
+  const participants = Array.isArray(room.participantIds)
+    ? room.participantIds.filter((v): v is string => typeof v === "string" && v.length > 0)
+    : [];
+  return new Set(participants).size > 2;
+}
+
 export function buildFriendPairId(userA: string, userB: string): string {
   const ids = [userA.trim(), userB.trim()].filter(Boolean).sort();
   if (ids.length !== 2 || ids[0] === ids[1]) {
@@ -107,6 +124,7 @@ export function emptySocialDocs(): AccountDeletionSocialDocs {
     friendOtherUids: [],
     matchIds: [],
     chatRoomIds: [],
+    groupChatRoomIds: [],
     recEventIds: [],
     bambooPostIds: [],
     bambooComments: [],
@@ -126,6 +144,7 @@ export function emptySocialCounts(): AccountDeletionSocialCounts {
     friendEdgesDeleted: 0,
     matchesEnded: 0,
     chatRoomsClosed: 0,
+    groupChatRoomsDetached: 0,
     recEventsDeleted: 0,
     bambooPostsSoftDeleted: 0,
     bambooCommentsSoftDeleted: 0,
@@ -147,6 +166,7 @@ export function socialCountsFromDocs(
     friendEdgesDeleted: docs.friendOtherUids.length * 2,
     matchesEnded: docs.matchIds.length,
     chatRoomsClosed: docs.chatRoomIds.length,
+    groupChatRoomsDetached: docs.groupChatRoomIds.length,
     recEventsDeleted: docs.recEventIds.length,
     bambooPostsSoftDeleted: docs.bambooPostIds.length,
     bambooCommentsSoftDeleted: docs.bambooComments.length,
@@ -185,6 +205,10 @@ export function planAccountDeletionSocialOperations(params: {
   }
   for (const id of docs.chatRoomIds) {
     operations.push({ kind: "closeChatRoom", id });
+    operations.push({ kind: "anonymizeChatMessages", id });
+  }
+  for (const id of docs.groupChatRoomIds) {
+    operations.push({ kind: "detachGroupChatMember", id });
     operations.push({ kind: "anonymizeChatMessages", id });
   }
   for (const id of docs.recEventIds) {
@@ -362,7 +386,12 @@ export async function loadAccountDeletionSocialDocs(
     friendshipIds,
     friendOtherUids,
     matchIds: matchesSnap.docs.map((doc) => doc.id),
-    chatRoomIds: roomsSnap.docs.map((doc) => doc.id),
+    chatRoomIds: roomsSnap.docs
+      .filter((doc) => !isGroupChatRoom(doc.data() as Record<string, unknown>))
+      .map((doc) => doc.id),
+    groupChatRoomIds: roomsSnap.docs
+      .filter((doc) => isGroupChatRoom(doc.data() as Record<string, unknown>))
+      .map((doc) => doc.id),
     recEventIds: recEventsSnap.docs.map((doc) => doc.id),
     bambooPostIds: [
       ...new Set([
@@ -377,6 +406,10 @@ export async function loadAccountDeletionSocialDocs(
     eventTeamSetupIds,
     eventTeamInviteIds,
   };
+}
+
+export function deletedParticipantInfo(): { nickname: string; avatarUrl: null; accountDeleted: true } {
+  return { nickname: DELETED_USER_DISPLAY_NAME, avatarUrl: null, accountDeleted: true };
 }
 
 export async function applySocialCleanupOperation(
@@ -442,16 +475,34 @@ export async function applySocialCleanupOperation(
       );
       return;
     case "closeChatRoom":
+      // P1-5: under set({merge:true}) a key is a field NAME, never a path —
+      // the previous `participantInfo.<uid>` key created a literal top-level
+      // field and left the real nested nickname/avatar in place. A nested map
+      // merges field-by-field and preserves the other participant's entry.
       await firestore
         .collection("chat_rooms")
         .doc(operation.id)
         .set(
           {
             status: "closed",
-            [`participantInfo.${safeUid}`]: {
-              nickname: DELETED_USER_DISPLAY_NAME,
-              avatarUrl: null,
-            },
+            participantInfo: { [safeUid]: deletedParticipantInfo() },
+            accountDeletedUserIds: FieldValue.arrayUnion(safeUid),
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      return;
+    case "detachGroupChatMember":
+      // P1-5: a 3:3 room stays open and writable for the remaining members;
+      // only the departing member's displayed identity is scrubbed and the
+      // departure recorded. Membership arrays are owned by the meeting
+      // lifecycle and are not edited here.
+      await firestore
+        .collection("chat_rooms")
+        .doc(operation.id)
+        .set(
+          {
+            participantInfo: { [safeUid]: deletedParticipantInfo() },
             accountDeletedUserIds: FieldValue.arrayUnion(safeUid),
             updatedAt: now,
           },

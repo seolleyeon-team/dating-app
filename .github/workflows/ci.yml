@@ -106,6 +106,54 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
           --project demo-p02-chat
           "node --test functions/.ci-emulator-lib/deploymentDriftRegression.emulator-test.js"
+      # P1-1: one transactional mutual-match authority on the real handlers —
+      # simultaneous mutual likes, redelivery, pair-based like-notification
+      # idempotency, block enforcement, legacy/closed-room preservation, and
+      # the recEvents/interactions paths sharing one match.
+      - name: P1-1 mutual match and like notification (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p11-match
+          "node --test functions/.ci-emulator-lib/mutualMatch.emulator-test.js"
+      # P1-2: sendChatText authorisation decided inside the transaction —
+      # closed / read_only / archived / writable:false rooms, removed
+      # participants, bilateral blocks regardless of room type, partition
+      # boundary, and clientMessageId idempotency under concurrent retries.
+      - name: P1-2 chat send authorisation and idempotency (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p12-chat
+          "node --test functions/.ci-emulator-lib/chatSafety.emulator-test.js"
+      # P1-3: FCM token ownership registry — claim / transfer / stale / release
+      # through the trigger handler, delivery-time ownership check, backfill.
+      - name: P1-3 push token ownership (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p13-tokens
+          "node --test functions/.ci-emulator-lib/pushTokenOwnership.emulator-test.js"
+      # P1-5: account deletion — nested participantInfo scrub on the real engine
+      # (no literal dotted key), group rooms detached not closed, blind-meeting
+      # personal data removed/anonymised, onboarding photographs deleted from
+      # the uid's Storage prefix only.
+      - name: P1-5 account deletion personal data (Firestore + Storage emulators)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,storage
+          --project demo-p15-deletion
+          "node --test functions/.ci-emulator-lib/accountDeletion.emulator-test.js"
+      # P1-8: daily unread digest cost at scale — one room document per
+      # active room, zero message documents, paging completeness.
+      - name: P1-8 unread digest scale (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p18-digest
+          "node --test functions/.ci-emulator-lib/chatDigestScale.emulator-test.js"
+      # P1-12: group read state on the P0-2 room-level model — six concurrent
+      # mark-reads, mark-read racing accounting, delayed/duplicate triggers.
+      - name: P1-12 group read state concurrency (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p112-readstate
+          "node --test functions/.ci-emulator-lib/groupReadState.emulator-test.js"
       # Blind-meeting replacement search (both scheduled ticks run it): fill
       # by same-gender FIFO candidate, concurrent ticks fill once, deadline
       # cancellation refunds remaining members once, matching deferral.

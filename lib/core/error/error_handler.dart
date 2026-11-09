@@ -1,5 +1,6 @@
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
+import 'crash_reporting.dart';
 import 'exceptions.dart';
 
 /// 전역 에러 핸들러
@@ -36,14 +37,19 @@ class ErrorHandler {
     );
   }
 
-  /// 에러 로깅
+  /// 에러 로깅 — 콘솔 요약 + Crashlytics 비치명 보고 (P1-6).
+  /// 원문 메시지는 전송하지 않는다 (SanitizedCrashError).
   static void logError(Object error, [StackTrace? stackTrace]) {
-    // TODO: 에러 로깅 서비스 연동 (Firebase Crashlytics 등)
     // ignore: avoid_print
     print('[Error] ${PrivacyLogUtils.errorSummary(error)}');
     if (stackTrace != null) {
       // ignore: avoid_print
       print('[Error] hasStackTrace=true');
     }
+    CrashReporting.instance.recordNonFatal(
+      error,
+      stackTrace,
+      reason: 'error_handler',
+    );
   }
 }

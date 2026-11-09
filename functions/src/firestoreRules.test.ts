@@ -201,11 +201,11 @@ test("matching and recommendation rules are participant or owner scoped", () => 
   );
   assertContains(
     "asks must be participant-readable and recipient can only mark read",
-    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if (isCanonicalAppSession() || isPlayReviewSession()) && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
+    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if (isCanonicalAppSession() || isPlayReviewSession()) && isAdultVerifiedCaller() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );
   assertContains(
     "interactions must be participant-readable and from-user-bound create only",
-    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if (isCanonicalAppSession() || isPlayReviewSession()) && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
+    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if (isCanonicalAppSession() || isPlayReviewSession()) && isAdultVerifiedCaller() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );
   assertContains(
     "matches must be participant-readable and backend-created",

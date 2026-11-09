@@ -17,6 +17,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'core/error/crash_reporting.dart';
 import 'services/firebase_diagnostics.dart';
 import 'services/firebase_runtime.dart';
 import 'services/push_notification_service.dart';
@@ -135,6 +136,12 @@ void main() {
       );
       await _configureFirebaseEmulators();
       FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
+
+      // P1-6: crash reporting — FlutterError.onError, PlatformDispatcher
+      // onError and the root zone below all report through one facade that
+      // strips raw messages (privacy) and deduplicates. Collection is on for
+      // release builds on Android/iOS only.
+      await CrashReporting.instance.install();
 
       // App Check: Android/iOS always. Web uses reCAPTCHA v3 normally, with
       // an explicit debug-provider escape hatch for local Chrome testing.
@@ -256,6 +263,9 @@ void main() {
       debugPrint(
         '[GLOBAL] Uncaught error: ${PrivacyLogUtils.errorSummary(error)}',
       );
+      // Before Firebase is initialised this only prints; afterwards it is
+      // uploaded once as a fatal error.
+      CrashReporting.instance.recordZoneError(error, stack);
     },
   );
 }

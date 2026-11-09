@@ -6,25 +6,32 @@ class AskService {
   CollectionReference<Map<String, dynamic>> get _asksRef =>
       _firestore.collection('asks');
 
+  /// Maximum question length (mirrors the Firestore rule).
+  static const int maxTextLength = 500;
+
+  /// P1-10: an ask carries only the question. Sender and recipient identity
+  /// are resolved by the reader from `publicProfiles/{uid}` (server-owned);
+  /// the former client-written profile snapshots let a sender pick the
+  /// nickname and image URL the recipient saw and are refused by the rules.
   Future<String> sendAsk({
     required String fromUserId,
     required String toUserId,
     required String text,
     String sourceScreen = 'profile_specific_detail_screen',
-    Map<String, dynamic>? fromUserSnapshot,
-    Map<String, dynamic>? toUserSnapshot,
   }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || trimmed.length > maxTextLength) {
+      throw ArgumentError.value(text.length, 'text', 'length out of range');
+    }
     final docRef = await _asksRef.add({
       'fromUserId': fromUserId,
       'toUserId': toUserId,
-      'text': text,
+      'text': trimmed,
       'status': 'sent',
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
       'readAt': null,
       'sourceScreen': sourceScreen,
-      if (fromUserSnapshot != null) 'fromUserProfileSnapshot': fromUserSnapshot,
-      if (toUserSnapshot != null) 'toUserProfileSnapshot': toUserSnapshot,
     });
     return docRef.id;
   }
@@ -61,17 +68,18 @@ class AskService {
         .map((snap) => snap.size);
   }
 
-  Map<String, dynamic> buildProfileSnapshot({
-    required String uid,
-    String? nickname,
-    String? profileImageUrl,
-    String? universityName,
+  /// P1-10: identity shown next to an ask comes from the server-owned public
+  /// profile. Legacy documents may still carry a client-written snapshot; only
+  /// its nickname is used as a text fallback, never its image URL.
+  static String legacyNicknameFallback(
+    Map<String, dynamic> askData, {
+    required bool isReceived,
   }) {
-    return {
-      'uid': uid,
-      'nickname': nickname ?? '',
-      'profileImageUrl': profileImageUrl ?? '',
-      'universityName': universityName ?? '',
-    };
+    final key = isReceived
+        ? 'fromUserProfileSnapshot'
+        : 'toUserProfileSnapshot';
+    final snapshot = askData[key];
+    if (snapshot is! Map) return '';
+    return snapshot['nickname']?.toString().trim() ?? '';
   }
 }

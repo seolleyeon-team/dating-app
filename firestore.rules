@@ -127,8 +127,81 @@ service cloud.firestore {
           );
     }
 
+    // P1-10: neither side of a block may contact the other through asks or
+    // likes. reportAndBlockUser writes both directions; a one-directional
+    // contact block is enough to refuse.
+    function callerBlockedWith(otherUid) {
+      return exists(/databases/$(database)/documents/blocks/$(request.auth.uid)/targets/$(otherUid)) ||
+          exists(/databases/$(database)/documents/blocks/$(otherUid)/targets/$(request.auth.uid));
+    }
+
+    // P1-10: an ask carries only the question. The former client-supplied
+    // fromUserProfileSnapshot / toUserProfileSnapshot let a sender choose the
+    // nickname and image URL the recipient saw (impersonation; an attacker
+    // URL fetched by the recipient's device). Identity is resolved by the
+    // recipient from publicProfiles/{uid} (server-owned).
+    function askCreateSchemaOk() {
+      return request.resource.data.keys().hasOnly([
+            'fromUserId', 'toUserId', 'text', 'status',
+            'createdAt', 'updatedAt', 'readAt', 'sourceScreen', 'dataPartition'
+          ]) &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 500 &&
+          request.resource.data.status == 'sent' &&
+          request.resource.data.get('readAt', null) == null &&
+          (!request.resource.data.keys().hasAny(['sourceScreen']) ||
+            (request.resource.data.sourceScreen is string &&
+              request.resource.data.sourceScreen.size() <= 64)) &&
+          (!request.resource.data.keys().hasAny(['createdAt']) ||
+            request.resource.data.createdAt == request.time) &&
+          (!request.resource.data.keys().hasAny(['updatedAt']) ||
+            request.resource.data.updatedAt == request.time);
+    }
+
+    // P1-10: the interaction schema. `view` and `message` legitimately repeat;
+    // like / super_like / nope are one-shot decisions (P1-1: the server
+    // deduplicates their effects per pair). metadata is only the chat
+    // message preview the client records on `message`.
+    function interactionCreateSchemaOk() {
+      return request.resource.data.action in ['like', 'super_like', 'nope', 'view', 'message'] &&
+          request.resource.data.source is string &&
+          request.resource.data.source.size() > 0 &&
+          request.resource.data.source.size() <= 64 &&
+          request.resource.data.toUserId != request.auth.uid &&
+          request.resource.data.toUserId.size() <= 128 &&
+          (!request.resource.data.keys().hasAny(['createdAt']) ||
+            request.resource.data.createdAt == request.time) &&
+          (
+            request.resource.data.get('metadata', null) == null ||
+            (
+              request.resource.data.metadata is map &&
+              request.resource.data.metadata.keys().hasOnly(['messagePreview']) &&
+              (!request.resource.data.metadata.keys().hasAny(['messagePreview']) ||
+                (request.resource.data.metadata.messagePreview is string &&
+                  request.resource.data.metadata.messagePreview.size() <= 200))
+            )
+          );
+    }
+
     function isSelf(uid) {
       return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // P1-7: dating writes (likes, asks, chat) require the server-written
+    // adult-verification evidence on the caller's own users document.
+    // adultVerified / realNameVerified are written only by
+    // verifyAdultIdentityAfterLogin and are in no client-writable allowlist.
+    // The review partition is an isolated data plane and is exempt.
+    function isAdultVerifiedCaller() {
+      return isSignedIn() && (
+        isPlayReviewSession() ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('adultVerified', false) == true &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('realNameVerified', false) == true
+        )
+      );
     }
 
     // Community counters are client-written via FieldValue.increment(±1).
@@ -1591,6 +1664,94 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           );
     }
 
+    // P1-2: fields a participant may change on ANY room through the general
+    // update branch. Everything else on a room document is server-owned:
+    // participantIds / participantInfo (identity shown to the peer), type /
+    // roomType (the discriminator the block and meeting rules key on),
+    // status / writable (lifecycle), matchId / meetingId and the meeting link
+    // fields, dataPartition, unlockedBy / heartCost, and the real-photo
+    // disclosure fields (photoBlurUnlocked*) which only sendChatText writes.
+    // The P0-2 own-read-state write is a separate branch and stays as is.
+    function chatRoomClientMutableKeys() {
+      return ['lastMessage', 'lastMessageAt', 'updatedAt', 'activePromise'];
+    }
+
+    function chatRoomClientMutableOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(chatRoomClientMutableKeys());
+    }
+
+    // P1-2: lifecycle gate for client writes INTO a room (messages, promises).
+    // A room closed by an unmatch or an account deletion, or set read_only /
+    // archived by a meeting lifecycle, accepts nothing from clients. Legacy
+    // rooms without a status are active.
+    function chatRoomAcceptsClientWrites(data) {
+      return data != null &&
+          data.get('status', 'active') == 'active' &&
+          data.get('writable', true) == true;
+    }
+
+    // P1-2: strict client message schemas. Free text is server-only
+    // (sendChatText); system / promise_confirmed / promise_in_progress /
+    // promise_completed and every other type are server-written or
+    // reached by update only. A client may CREATE exactly two shapes:
+    //   promise_request  — chat_service.dart createPromise
+    //   promise_deleted  — chat_service.dart cancelPromise
+    // Unknown types and extra fields are refused, so a forged type can no
+    // longer carry unmoderated text past the callable.
+    function promiseRequestMessageKeys() {
+      return [
+        'senderId', 'text', 'type', 'promiseId',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng', 'placeThumbnailUrl',
+        'status', 'isEdited', 'editedAt', 'createdAt', 'updatedAt',
+        'readBy'
+      ];
+    }
+
+    function promiseDeletedMessageKeys() {
+      return [
+        'senderId', 'text', 'type', 'promiseId',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng', 'placeThumbnailUrl',
+        'status', 'createdAt', 'updatedAt',
+        'readBy'
+      ];
+    }
+
+    function isPromiseRequestMessageCreate() {
+      return request.resource.data.type == 'promise_request' &&
+          request.resource.data.keys().hasOnly(promiseRequestMessageKeys()) &&
+          request.resource.data.keys().hasAll(['senderId', 'text', 'type', 'promiseId', 'dateTime', 'place', 'placeCategory', 'status']) &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 100 &&
+          request.resource.data.promiseId is string &&
+          request.resource.data.promiseId.size() > 0 &&
+          request.resource.data.promiseId.size() <= 128 &&
+          request.resource.data.dateTime is timestamp &&
+          request.resource.data.place is string &&
+          request.resource.data.place.size() <= 200 &&
+          request.resource.data.placeCategory is string &&
+          request.resource.data.placeCategory.size() <= 50 &&
+          request.resource.data.status == 'requested' &&
+          (!request.resource.data.keys().hasAny(['isEdited']) || request.resource.data.isEdited == false);
+    }
+
+    function isPromiseDeletedMessageCreate(roomId) {
+      return request.resource.data.keys().hasOnly(promiseDeletedMessageKeys()) &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() <= 100 &&
+          canCreatePromiseDeletionMessage(roomId);
+    }
+
+    function isClientCreatableChatMessage(roomId) {
+      return request.resource.data.type is string && (
+          isPromiseRequestMessageCreate() ||
+          isPromiseDeletedMessageCreate(roomId)
+      );
+    }
+
     function seasonMeetingRoomMutableOnly() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'lastMessage',
@@ -1639,6 +1800,9 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow update: if isChatRoomParticipant() &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(unreadModelServerKeys()) &&
         !hasOneToOneChatBlock(resource.data) &&
+        // P1-2: only chat metadata and the promise mirror are client-mutable.
+        chatRoomClientMutableOnly() &&
+        isAdultVerifiedCaller() &&
         isChatRoomParticipantAfter() &&
         chatRoomParticipantIdsUnchanged() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
@@ -1662,7 +1826,13 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isParticipantMessageAuthor(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
+          // P1-2: closed / read_only / archived rooms accept nothing; free
+          // text is server-only and a client may create only the two promise
+          // card shapes with their exact fields.
+          chatRoomAcceptsClientWrites(blindRoomData(roomId)) &&
+          isAdultVerifiedCaller() &&
           request.resource.data.type != 'text' &&
+          isClientCreatableChatMessage(roomId) &&
           // P0-2: the accounting marker is written only by the server. The
           // retired receipt field is tolerated only as `[own uid]` from an
           // installed old build (transitional, NEW-18) and is ignored.
@@ -1693,6 +1863,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isExistingChatRoomParticipant(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
+          chatRoomAcceptsClientWrites(blindRoomData(roomId)) &&
+          isAdultVerifiedCaller() &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
             blindRoomData(roomId).writable == true) &&
           request.resource.data.keys().hasOnly(promiseClientCreatableKeys()) &&
@@ -1703,6 +1875,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           isPromiseAuthorAtCreate(roomId) &&
           request.resource.data.status == 'requested';
         allow update: if isExistingChatRoomParticipant(roomId) &&
+          isAdultVerifiedCaller() &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
             blindRoomData(roomId).writable == true) &&
           request.resource.data.diff(resource.data).affectedKeys()
@@ -1899,6 +2072,12 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     match /notificationDispatchLog/{dispatchKey} {
+      allow read, write: if false;
+    }
+
+    // P1-3: private FCM token ownership registry (token fingerprint → owner).
+    // Maintained by onDeviceTokenWritten and read before every push.
+    match /pushTokenOwners/{tokenFingerprint} {
       allow read, write: if false;
     }
 
@@ -2398,15 +2577,15 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
 
       allow create: if
         (isCanonicalAppSession() || isPlayReviewSession()) &&
+        isAdultVerifiedCaller() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
         request.resource.data.toUserId.size() > 0 &&
         request.resource.data.toUserId != request.auth.uid &&
         askRecipientPartitionIsValid() &&
-        request.resource.data.text is string &&
-        request.resource.data.text.size() > 0 &&
-        request.resource.data.status == 'sent';
+        !callerBlockedWith(request.resource.data.toUserId) &&
+        askCreateSchemaOk();
 
       allow update: if
         isSignedIn() &&
@@ -2430,6 +2609,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow read: if isInteractionParticipant(resource.data);
       allow create: if
         (isCanonicalAppSession() || isPlayReviewSession()) &&
+        isAdultVerifiedCaller() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
@@ -2437,6 +2617,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         request.resource.data.action is string &&
         request.resource.data.source is string &&
         interactionPartitionIsValid() &&
+        !callerBlockedWith(request.resource.data.toUserId) &&
+        interactionCreateSchemaOk() &&
         request.resource.data.keys().hasOnly([
           'fromUserId', 'toUserId', 'action', 'source',
           'metadata', 'createdAt', 'dataPartition'

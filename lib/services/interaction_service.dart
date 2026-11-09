@@ -113,6 +113,21 @@ class InteractionService {
     );
   }
 
+  /// Decisions (like / super_like / nope) are one-shot per pair and get a
+  /// deterministic document id, so a retry or a double tap addresses the same
+  /// logical interaction instead of appending another document. The server is
+  /// still the authority for duplicates (P1-1: pair-based notification
+  /// idempotency and a transactional match); this only keeps the client from
+  /// producing them in the first place. `view` and `message` legitimately
+  /// repeat and keep auto ids.
+  static const Set<String> _oneShotActions = {'like', 'super_like', 'nope'};
+
+  static String deterministicInteractionId({
+    required String fromUserId,
+    required String toUserId,
+    required String action,
+  }) => '${fromUserId}_${toUserId}_$action';
+
   Future<void> _recordInteraction({
     required String fromUserId,
     required String toUserId,
@@ -124,7 +139,7 @@ class InteractionService {
         FirebaseAuth.instance.currentUser?.uid ==
             PlayReviewAccessService.reviewerUid &&
         fromUserId == PlayReviewAccessService.reviewerUid;
-    await _interactionsRef.add({
+    final payload = <String, dynamic>{
       'fromUserId': fromUserId,
       'toUserId': toUserId,
       'action': action,
@@ -132,7 +147,22 @@ class InteractionService {
       'metadata': metadata,
       'createdAt': FieldValue.serverTimestamp(),
       if (isReview) 'dataPartition': PlayReviewAccessService.dataPartition,
-    });
+    };
+    if (!_oneShotActions.contains(action)) {
+      await _interactionsRef.add(payload);
+      return;
+    }
+    final ref = _interactionsRef.doc(
+      deterministicInteractionId(
+        fromUserId: fromUserId,
+        toUserId: toUserId,
+        action: action,
+      ),
+    );
+    // Interactions are create-only under the rules; an existing document means
+    // this decision was already recorded (retry, double tap, re-opened card).
+    if ((await ref.get()).exists) return;
+    await ref.set(payload);
   }
 
   // ---------------------------------------------------------------------------

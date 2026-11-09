@@ -92,6 +92,48 @@ void main() {
     expect(repo.calls.last, 'page:${CommunityProvider.myPostsTab}:bob');
   });
 
+  test('P1-4: 인증 변경(bindUser) 은 다음 피드 요청 전에 이전 계정의 캐시를 비우고 알린다', () async {
+    var who = 'alice';
+    final repo = _FakeRepo(() => who)
+      ..feedByUid['*'] = ['p1', 'p2']
+      ..ownedByUid['alice'] = {'p1'}
+      ..ownedByUid['bob'] = {};
+    final provider = CommunityProvider(repository: repo, currentUid: () => who);
+    provider.bindUser('alice');
+    await provider.initialize();
+    await provider.changeTab(CommunityProvider.myPostsTab);
+    expect(provider.posts.map((p) => p.postId), ['p1']);
+    expect(provider.isMine('p1'), isTrue);
+    final callsBefore = repo.calls.length;
+
+    // 로그아웃: 요청 없이도 즉시 비어야 한다.
+    var notified = 0;
+    provider.addListener(() => notified++);
+    who = '';
+    provider.bindUser(null);
+    expect(notified, 1);
+    expect(provider.posts, isEmpty);
+    expect(provider.postsOf('전체'), isEmpty);
+    expect(provider.isMine('p1'), isFalse);
+    expect(repo.calls.length, callsBefore, reason: '비우기는 네트워크를 타지 않는다');
+
+    // bob 로그인: 여전히 비어 있고, 다음 initialize 는 bob 으로 읽는다.
+    who = 'bob';
+    provider.bindUser('bob');
+    expect(notified, 2);
+    expect(provider.posts, isEmpty);
+    expect(provider.isMine('p1'), isFalse);
+    await provider.initialize();
+    expect(repo.calls.last, 'page:${CommunityProvider.myPostsTab}:bob');
+    expect(provider.isMine('p1'), isFalse);
+
+    // 같은 계정으로 다시 bind 하면 아무 일도 없다 (알림도, 비우기도 없다).
+    final notifiedBefore = notified;
+    provider.bindUser('bob');
+    expect(notified, notifiedBefore);
+    expect(repo.calls.last, 'page:${CommunityProvider.myPostsTab}:bob');
+  });
+
   test('응답을 기다리는 사이 계정이 바뀌면 그 응답은 버린다', () async {
     var who = 'alice';
     final repo = _SlowRepo(() => who, onFetch: () => who = 'bob');

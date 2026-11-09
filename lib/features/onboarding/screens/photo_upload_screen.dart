@@ -464,9 +464,14 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         });
       }
 
+      // P1-9: bounded pick — the picker downsizes huge frames before they
+      // are read into memory, so the UI stays responsive and the callable
+      // payload stays small. The server re-validates the bound.
       final XFile? pickedFile = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 88,
+        maxWidth: OnboardingPhotoUploadService.maxPickDimension.toDouble(),
+        maxHeight: OnboardingPhotoUploadService.maxPickDimension.toDouble(),
+        imageQuality: OnboardingPhotoUploadService.pickImageQuality,
       );
 
       if (pickedFile == null) {

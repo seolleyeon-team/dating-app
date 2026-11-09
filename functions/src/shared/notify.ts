@@ -15,6 +15,8 @@ import {
 } from "firebase-admin/messaging";
 import * as logger from "firebase-functions/logger";
 
+import { forgetToken, verifyTokenOwnership } from "../pushTokenOwnership";
+
 /**
  * 기본 알림 채널 (소리 + 진동 + heads-up).
  *
@@ -129,7 +131,7 @@ export async function fetchUserTokenRecords(
 
   const snap = await userRef.collection("deviceTokens").get();
 
-  return snap.docs
+  const eligible = snap.docs
     .filter((doc) => {
       const data = doc.data();
       if (data.notificationsEnabled === false) return false;
@@ -146,6 +148,35 @@ export async function fetchUserTokenRecords(
       };
     })
     .filter((record) => record.token.length > 0);
+  if (eligible.length === 0) return eligible;
+
+  // P1-3: a registration is only a claim; the private registry says who the
+  // token currently belongs to. A token another account registered later is
+  // never delivered to this user and the stale registration is removed.
+  const verdict = await verifyTokenOwnership(
+    db(),
+    userId,
+    eligible.map((record) => record.token)
+  );
+  if (verdict.stale.length > 0) {
+    logger.warn("Stale device-token registrations skipped", {
+      userId,
+      staleCount: verdict.stale.length,
+    });
+    await Promise.all(verdict.stale.map((token) => forgetToken(db(), userId, token).catch((error) => {
+      logger.warn("Stale device-token cleanup failed", { userId, error });
+    })));
+  }
+  if (verdict.unregistered.length > 0) {
+    // Transitional: registrations that predate the registry (no trigger
+    // event yet, backfill not run). Delivered as before, surfaced in logs.
+    logger.info("Device tokens without an ownership record delivered (legacy)", {
+      userId,
+      unregisteredCount: verdict.unregistered.length,
+    });
+  }
+  const deliverable = new Set([...verdict.owned, ...verdict.unregistered]);
+  return eligible.filter((record) => deliverable.has(record.token));
 }
 
 const CHAT_DELIVERY_CONTEXT_MAX_AGE_MS = 90 * 1000;
@@ -485,18 +516,14 @@ export async function sendPushToUsers(
   });
 
   if (invalidTokens.length > 0) {
+    // P1-3: an invalid token is removed from every addressed registration
+    // and released from the ownership registry.
     for (const uid of uniqueUserIds) {
-      const batch = db().batch();
       for (const token of invalidTokens) {
-        batch.delete(
-          db()
-            .collection("users")
-            .doc(uid)
-            .collection("deviceTokens")
-            .doc(token)
-        );
+        await forgetToken(db(), uid, token).catch((error) => {
+          logger.warn("Invalid device-token cleanup failed", { uid, error });
+        });
       }
-      await batch.commit();
     }
   }
 }

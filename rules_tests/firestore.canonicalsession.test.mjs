@@ -12,7 +12,7 @@ import {
   withClearedDb,
 } from "./helpers.mjs";
 
-import { doc, getDoc, setDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, Timestamp, updateDoc } from "firebase/firestore";
 
 // ---------------------------------------------------------------------------
 // Auth re-architecture (identity-contract §2/§6): the interactive surfaces
@@ -29,15 +29,21 @@ const MY_EMAIL = "me@yonsei.ac.kr";
 
 function seedSocialGraph() {
   return withClearedDb(async (db) => {
+    // P1-7: dating writes also need the server-written adult evidence; this
+    // suite is about session claims, so both accounts carry it.
     await setDoc(doc(db, "users", ME), {
       kakaoUserId: ME,
       isStudentVerified: true,
+      adultVerified: true,
+      realNameVerified: true,
       studentEmail: MY_EMAIL,
       nickname: "나",
     });
     await setDoc(doc(db, "users", OTHER), {
       kakaoUserId: OTHER,
       isStudentVerified: true,
+      adultVerified: true,
+      realNameVerified: true,
       studentEmail: "other@yonsei.ac.kr",
       nickname: "상대",
     });
@@ -65,7 +71,8 @@ function gatedOps(db, suffix) {
         toUserId: OTHER,
         action: "like",
         source: "daily_recs",
-        createdAt: Timestamp.now(),
+        // P1-10: createdAt must be the server time (what the real client writes).
+        createdAt: serverTimestamp(),
       }),
     createAsk: () =>
       setDoc(doc(db, "asks", `ask_${suffix}`), {
