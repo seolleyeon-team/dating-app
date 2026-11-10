@@ -135,8 +135,8 @@ source, with App Check enforcement verified live.
 - Executions on the new revisions: lifecycle tick 5×200, matching tick 2×200,
   goodbye auto-complete 2×200, trigger events 2xx.
 - Schedulers ENABLED, no failure code. `sendDailyUnreadChatDigests`
-  (`0 13 * * *` Asia/Seoul) — first run on the new revision is after this
-  record (see §7).
+  (`0 13 * * *` Asia/Seoul): first run on the new revision 2026-11-10 04:00Z —
+  `00009-quq` started / collected / finished, HTTP 200, no warning or error.
 - Integrity: FCM `--verify` ok after the tests; P0-2 unread `--verify` 23 rooms,
   0 mismatches, 0 structural issues; P0-3 Bamboo `--verify` 0 violations.
 
