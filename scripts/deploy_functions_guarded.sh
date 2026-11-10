@@ -24,7 +24,9 @@
 #   It is left out of the pre-deploy comparison only (there is no live
 #   environment to regress); the post-deploy comparison still covers every
 #   target with no declarations, so the new service's environment must equal
-#   the env file exactly. Repeat once per new function.
+#   the env file exactly. Repeat once per new function. It combines with
+#   --allow-failure-policy only for that same single function (a new event
+#   function declaring `retry: true`); never with bootstrap mode.
 #
 # --allow-failure-policy FUNCTION
 #   The Firebase CLI refuses to deploy an event function that declares
@@ -104,9 +106,19 @@ if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
 fi
 
 if [ "${#NEW_FUNCTIONS[@]}" -gt 0 ]; then
-  if [ -n "$BOOTSTRAP_MANIFEST" ] || [ -n "$FAILURE_POLICY_FUNCTION" ]; then
-    echo "NEW_FUNCTION_MODE_CONFLICT: --new-function cannot be combined with bootstrap or failure-policy mode" >&2
+  if [ -n "$BOOTSTRAP_MANIFEST" ]; then
+    echo "NEW_FUNCTION_MODE_CONFLICT: --new-function cannot be combined with bootstrap mode" >&2
     exit 2
+  fi
+  # A brand-new event function that declares `retry: true` needs both
+  # declarations. Failure-policy mode already pins the deploy to one target
+  # equal to its name, so the only accepted combination is that same single
+  # function declared new exactly once.
+  if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
+    if [ "${#NEW_FUNCTIONS[@]}" -ne 1 ] || [ "${NEW_FUNCTIONS[0]}" != "$FAILURE_POLICY_FUNCTION" ]; then
+      echo "NEW_FUNCTION_MODE_CONFLICT: with --allow-failure-policy, --new-function must name that same single function once" >&2
+      exit 2
+    fi
   fi
   for new_fn in "${NEW_FUNCTIONS[@]}"; do
     if ! [[ "$new_fn" =~ ^[A-Za-z][A-Za-z0-9]*$ ]]; then
