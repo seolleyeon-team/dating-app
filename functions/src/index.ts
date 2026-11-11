@@ -95,6 +95,7 @@ import {
   createSeasonMeetingRefundFunction,
   createSeasonMeetingReportNoShowFunction,
 } from "./seasonMeetingOperations";
+import { createSeasonScheduleLockTrigger } from "./seasonMeetingScheduleLock";
 import {
   createAvatarJobSourceRetentionTrigger,
   createAvatarSourceRetentionRecoveryTrigger,
@@ -2545,6 +2546,8 @@ export const claimSeasonMeetingReplacementSeat =
   createSeasonMeetingClaimReplacementFunction(db, resolveAuthedAppUser);
 export const refundSeasonMeetingDeposit =
   createSeasonMeetingRefundFunction(db, resolveAuthedAppUser);
+// P1-13: the server-observed schedule the season callables rely on.
+export const onSeasonMeetingPromiseWritten = createSeasonScheduleLockTrigger(db);
 
 export const purgeExpiredEmailLinkTokens =
   createPurgeExpiredEmailLinkTokensSchedule(db);
