@@ -737,7 +737,20 @@ def test_repository_manifest_matches_the_live_contract_shape():
         (["--new-function", "deleteCommunityPost", "cleanupAvatarMedia"], "NEW_FUNCTION_NOT_A_TARGET"),
         (["--new-function", "bad-name", "bad-name"], "NEW_FUNCTION_NAME_INVALID"),
         (
-            ["--new-function", "cleanupAvatarMedia", "--allow-failure-policy", "cleanupAvatarMedia", "cleanupAvatarMedia"],
+            ["--new-function", "cleanupAvatarMedia", "--new-function", "cleanupAvatarMedia", "--allow-failure-policy", "cleanupAvatarMedia", "cleanupAvatarMedia"],
+            "NEW_FUNCTION_MODE_CONFLICT",
+        ),
+        (
+            ["--new-function", "cleanupAvatarMedia", "--bootstrap-no-serving-revision-manifest", "m.json", "cleanupAvatarMedia"],
+            "NEW_FUNCTION_MODE_CONFLICT",
+        ),
+        (
+            # failure-policy mode pins one target; a second (new) target is refused first
+            ["--new-function", "deleteCommunityPost", "--allow-failure-policy", "cleanupAvatarMedia", "cleanupAvatarMedia", "deleteCommunityPost"],
+            "FAILURE_POLICY_SINGLE_TARGET_REQUIRED",
+        ),
+        (
+            ["--new-function", "deleteCommunityPost", "--allow-failure-policy", "cleanupAvatarMedia", "cleanupAvatarMedia"],
             "NEW_FUNCTION_MODE_CONFLICT",
         ),
     ],
@@ -845,3 +858,71 @@ def test_declared_new_function_must_be_absent_and_is_guarded_after_deploy(tmp_pa
     )
     assert again.returncode != 0
     assert "NEW_FUNCTION_ALREADY_EXISTS" in again.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+def test_new_event_function_with_retry_deploys_alone_with_force_and_is_guarded_after(tmp_path):
+    """A brand-new trigger declaring `retry: true` (P1-3 onDeviceTokenWritten):
+    --new-function + --allow-failure-policy for the same single target. The
+    absence is proven, `--force` reaches only that one target, and the
+    post-deploy comparison still requires the new service's env == env file."""
+    root, candidate = _root(tmp_path)
+    scripts = root / "scripts"
+    scripts.mkdir()
+    for name in (
+        "deploy_functions_guarded.sh",
+        "deploy_functions_guarded_contract.py",
+        "functions_env_regression_guard.py",
+    ):
+        (scripts / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+    (root / "functions" / "node_modules").mkdir()
+    _install_fake_tsc(root)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "deployed"
+    _install_fake_gcloud_with_absent(bin_dir, "deletecommunitypost", marker)
+    deploy_log = tmp_path / "npx-deploy.log"
+    npx = bin_dir / "npx"
+    npx.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$3\" = \"--version\" ]; then\n"
+        "  printf '15.30.2\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\n' \"$*\" >> '{deploy_log}'\n"
+        f"touch '{marker}'\n",
+        encoding="utf-8",
+    )
+    npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
+    _install_fake_npm(bin_dir)
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+
+    base = [
+        "bash", str(scripts / "deploy_functions_guarded.sh"),
+        "--project", PROJECT, "--region", "asia-northeast3",
+        "--env-file", str(candidate.relative_to(root)),
+    ]
+    completed = subprocess.run(
+        base + ["--new-function", "deleteCommunityPost", "--allow-failure-policy", "deleteCommunityPost", "deleteCommunityPost"],
+        cwd=root, env=env, capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "deleteCommunityPost is new" in completed.stdout
+    assert "no live environment to compare" in completed.stdout
+    assert deploy_log.read_text(encoding="utf-8").strip() == (
+        "-y firebase-tools@15.30.2 deploy --only functions:deleteCommunityPost "
+        "--project seolleyeon-final --non-interactive --force"
+    )
+    assert completed.stdout.count("ENV REGRESSION GUARD: PASS") == 1
+
+    # The service now exists: the same declaration is refused before any deploy.
+    deploy_log.unlink()
+    again = subprocess.run(
+        base + ["--new-function", "deleteCommunityPost", "--allow-failure-policy", "deleteCommunityPost", "deleteCommunityPost"],
+        cwd=root, env=env, capture_output=True, text=True, check=False,
+    )
+    assert again.returncode != 0
+    assert "NEW_FUNCTION_ALREADY_EXISTS" in again.stderr
+    assert not deploy_log.exists()

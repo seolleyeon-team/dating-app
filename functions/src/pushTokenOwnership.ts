@@ -18,8 +18,10 @@
  *   - a deleted registration releases the token only if it was the owner's;
  *   - fetchUserTokenRecords (shared/notify.ts) delivers only to tokens the
  *     registry assigns to the recipient and deletes stale registrations it
- *     finds. A token with no registry record yet (pre-backfill legacy) is
- *     delivered and logged; `runTokenOwnershipBackfill` creates the records.
+ *     finds. A token with no registry record is not delivered (fail closed);
+ *     `runTokenOwnershipBackfill` creates the records for registrations that
+ *     predate the trigger, and the rollout completes it before the senders
+ *     carrying this check are deployed.
  *
  * Raw tokens are never written to the registry or to logs — the document id
  * is a non-reversible fingerprint.
@@ -32,6 +34,7 @@ import {
   Timestamp,
   type DocumentSnapshot,
   type Firestore,
+  type Transaction,
 } from "firebase-admin/firestore";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
@@ -230,27 +233,37 @@ export function planTokenOwnershipBackfill(records: RegistrationRecord[]): Backf
   return plan;
 }
 
+export type BackfillTokenOutcome =
+  /** No registry record: created for the newest current registration. */
+  | "created"
+  /** A registry record already exists (the live trigger wrote it); trusted, never overwritten. */
+  | "already_recorded"
+  /** Every registration seen by the scan has since disappeared: nothing to own. */
+  | "no_registration"
+  /** The record names an owner whose registration is gone: left for the trigger, not guessed. */
+  | "owner_registration_missing";
+
 export type BackfillResult = {
   registrationsScanned: number;
   tokens: number;
+  /** Tokens registered under more than one account in the scan. */
   conflicts: number;
-  registryWrites: number;
+  created: number;
+  alreadyRecorded: number;
+  noRegistration: number;
+  ownerRegistrationMissing: number;
+  /** Registrations under a non-owner account, not newer than the owner's: deleted. */
   staleDeletes: number;
+  /** Non-owner registrations NEWER than the record: their trigger event is pending; untouched. */
+  pendingNewer: number;
+  /** Tokens left unprocessed because the canary limit was reached. */
+  deferredByLimit: number;
+  /** Registry records written (== created when applied, 0 in dry-run). */
+  registryWrites: number;
   applied: boolean;
 };
 
-/**
- * Reads every registration (collection group, paged), plans and — with
- * `apply` — writes registry records that are missing or disagree, deleting
- * the losing registrations. Existing registry records that already name the
- * planned owner are left untouched, so a re-run writes nothing.
- */
-export async function runTokenOwnershipBackfill(
-  db: Firestore,
-  options: { apply: boolean; pageSize?: number; log?: (line: string) => void }
-): Promise<BackfillResult> {
-  const pageSize = options.pageSize ?? 500;
-  const log = options.log ?? (() => undefined);
+async function scanRegistrations(db: Firestore, pageSize: number): Promise<RegistrationRecord[]> {
   const records: RegistrationRecord[] = [];
   let last: DocumentSnapshot | null = null;
   for (;;) {
@@ -265,55 +278,196 @@ export async function runTokenOwnershipBackfill(
     if (page.size < pageSize) break;
     last = page.docs[page.docs.length - 1];
   }
+  return records;
+}
 
+type TokenReconcile = { outcome: BackfillTokenOutcome; staleDeletes: number; pendingNewer: number };
+
+/**
+ * One token, one transaction, current state only (the scan only says which
+ * accounts to look at). Mirrors the trigger's rules so the backfill can run
+ * while the trigger is live:
+ *   - an existing registry record is authoritative and never overwritten; a
+ *     registration under another account that is not newer than the record
+ *     is stale and deleted (the trigger's `stale_registration_deleted`); a
+ *     newer one is left for its pending trigger event;
+ *   - without a record, the newest current registration (ties by uid) gets a
+ *     record (`create`: a concurrent trigger claim aborts and retries the
+ *     transaction instead of being overwritten) and the others are deleted.
+ * Dry-run runs the same decisions in a read-only transaction.
+ */
+async function backfillOneToken(
+  db: Firestore,
+  token: string,
+  uids: string[],
+  apply: boolean
+): Promise<TokenReconcile> {
+  const registryRef = db.collection(PUSH_TOKEN_OWNER_COLLECTION).doc(tokenFingerprint(token));
+  const regRefs = uids.map((uid) => db.collection("users").doc(uid).collection("deviceTokens").doc(token));
+  const body = async (tx: Transaction): Promise<TokenReconcile> => {
+    const [registry, ...regs] = await tx.getAll(registryRef, ...regRefs);
+    const current = regs
+      .map((snap, i) => ({ uid: uids[i], snap }))
+      .filter((r) => r.snap.exists)
+      .map((r) => ({ uid: r.uid, ref: r.snap.ref, updatedAtMs: millisOf(r.snap.get("updatedAt"), 0) }));
+    if (registry.exists) {
+      const owner = String(registry.get("ownerUid") ?? "");
+      const ownerAt = millisOf(registry.get("registeredAt"), 0);
+      if (!current.some((r) => r.uid === owner)) {
+        return { outcome: "owner_registration_missing", staleDeletes: 0, pendingNewer: 0 };
+      }
+      const others = current.filter((r) => r.uid !== owner);
+      const stale = others.filter((r) => r.updatedAtMs <= ownerAt);
+      if (apply) for (const r of stale) tx.delete(r.ref);
+      return { outcome: "already_recorded", staleDeletes: stale.length, pendingNewer: others.length - stale.length };
+    }
+    if (current.length === 0) return { outcome: "no_registration", staleDeletes: 0, pendingNewer: 0 };
+    const sorted = [...current].sort((a, b) => b.updatedAtMs - a.updatedAtMs || a.uid.localeCompare(b.uid));
+    const winner = sorted[0];
+    const losers = sorted.slice(1).filter((r) => r.uid !== winner.uid);
+    if (apply) {
+      tx.create(registryRef, {
+        ownerUid: winner.uid,
+        registeredAt: Timestamp.fromMillis(winner.updatedAtMs),
+        platform: null,
+        updatedAt: FieldValue.serverTimestamp(),
+        backfilledAt: FieldValue.serverTimestamp(),
+      });
+      for (const r of losers) tx.delete(r.ref);
+    }
+    return { outcome: "created", staleDeletes: losers.length, pendingNewer: 0 };
+  };
+  return apply ? db.runTransaction(body) : db.runTransaction(body, { readOnly: true });
+}
+
+/**
+ * Reads every registration (collection group, paged) and reconciles each
+ * token in its own transaction (backfillOneToken). Idempotent: a re-run finds
+ * every token `already_recorded` with nothing stale. `maxTokens` bounds a run
+ * (canary): tokens are processed in fingerprint order, the rest are reported
+ * as deferred. Output never carries raw tokens or account ids.
+ */
+export async function runTokenOwnershipBackfill(
+  db: Firestore,
+  options: { apply: boolean; pageSize?: number; maxTokens?: number; log?: (line: string) => void }
+): Promise<BackfillResult> {
+  const log = options.log ?? (() => undefined);
+  const records = await scanRegistrations(db, options.pageSize ?? 500);
   const plan = planTokenOwnershipBackfill(records);
+  const uidsByToken = new Map<string, string[]>();
+  for (const record of records) {
+    if (!record.uid || !record.token) continue;
+    const list = uidsByToken.get(record.token) ?? [];
+    if (!list.includes(record.uid)) list.push(record.uid);
+    uidsByToken.set(record.token, list);
+  }
   const result: BackfillResult = {
     registrationsScanned: records.length,
-    tokens: plan.owners.length,
+    tokens: uidsByToken.size,
     conflicts: plan.conflicts.length,
-    registryWrites: 0,
+    created: 0,
+    alreadyRecorded: 0,
+    noRegistration: 0,
+    ownerRegistrationMissing: 0,
     staleDeletes: 0,
+    pendingNewer: 0,
+    deferredByLimit: 0,
+    registryWrites: 0,
     applied: options.apply,
   };
-  for (const conflict of plan.conflicts) {
-    log(`conflict token=${tokenFingerprint(conflict.token).slice(0, 12)} accounts=${conflict.uids.length}`);
+  const ordered = [...uidsByToken.entries()]
+    .map(([token, uids]) => ({ token, uids: [...uids].sort(), fp: tokenFingerprint(token) }))
+    .sort((a, b) => a.fp.localeCompare(b.fp));
+  const limit = options.maxTokens ?? Number.POSITIVE_INFINITY;
+  let processed = 0;
+  for (const item of ordered) {
+    if (processed >= limit) {
+      result.deferredByLimit += 1;
+      continue;
+    }
+    processed += 1;
+    const r = await backfillOneToken(db, item.token, item.uids, options.apply);
+    result.staleDeletes += r.staleDeletes;
+    result.pendingNewer += r.pendingNewer;
+    if (r.outcome === "created") {
+      result.created += 1;
+      if (options.apply) result.registryWrites += 1;
+    } else if (r.outcome === "already_recorded") result.alreadyRecorded += 1;
+    else if (r.outcome === "no_registration") result.noRegistration += 1;
+    else result.ownerRegistrationMissing += 1;
+    log(`token=${item.fp.slice(0, 12)} accounts=${item.uids.length} outcome=${r.outcome} stale=${r.staleDeletes} pending=${r.pendingNewer}`);
   }
-
-  const registryRefs = plan.owners.map((o) => db.collection(PUSH_TOKEN_OWNER_COLLECTION).doc(tokenFingerprint(o.token)));
-  const existing = new Map<string, string>();
-  for (let i = 0; i < registryRefs.length; i += 100) {
-    const chunk = registryRefs.slice(i, i + 100);
-    const snaps = await db.getAll(...chunk);
-    snaps.forEach((snap, j) => {
-      if (snap.exists) existing.set(plan.owners[i + j].token, String(snap.get("ownerUid") ?? ""));
-    });
-  }
-
-  let batch = db.batch();
-  let ops = 0;
-  const flush = async () => {
-    if (ops === 0) return;
-    if (options.apply) await batch.commit();
-    batch = db.batch();
-    ops = 0;
-  };
-  for (const owner of plan.owners) {
-    if (existing.get(owner.token) === owner.ownerUid) continue;
-    result.registryWrites += 1;
-    batch.set(db.collection(PUSH_TOKEN_OWNER_COLLECTION).doc(tokenFingerprint(owner.token)), {
-      ownerUid: owner.ownerUid,
-      registeredAt: Timestamp.fromMillis(owner.registeredAtMs),
-      platform: null,
-      updatedAt: FieldValue.serverTimestamp(),
-      backfilledAt: FieldValue.serverTimestamp(),
-    });
-    if (++ops >= 400) await flush();
-  }
-  for (const stale of plan.staleRegistrations) {
-    result.staleDeletes += 1;
-    batch.delete(db.collection("users").doc(stale.uid).collection("deviceTokens").doc(stale.token));
-    if (++ops >= 400) await flush();
-  }
-  await flush();
   return result;
+}
+
+export type RegistryVerification = {
+  registrations: number;
+  distinctTokens: number;
+  tokensWithRecord: number;
+  /** Registered tokens without a registry record (refused at delivery). */
+  tokensWithoutRecord: number;
+  /** Tokens registered under more than one account. */
+  tokensUnderMultipleAccounts: number;
+  /** Registrations under an account the registry does not name (stale). */
+  registrationsNotOwned: number;
+  /** Registry records whose owner has no registration for that token. */
+  recordsWithoutOwnerRegistration: number;
+  records: number;
+  ok: boolean;
+};
+
+/**
+ * Read-only consistency check of the registrations against the registry.
+ * `ok` = every registered token has a record, each token is registered under
+ * exactly one account, and that account is the recorded owner.
+ */
+export async function verifyTokenOwnershipRegistry(
+  db: Firestore,
+  options: { pageSize?: number } = {}
+): Promise<RegistryVerification> {
+  const pageSize = options.pageSize ?? 500;
+  const records = await scanRegistrations(db, pageSize);
+  const uidsByFingerprint = new Map<string, Set<string>>();
+  for (const r of records) {
+    const fp = tokenFingerprint(r.token);
+    const set = uidsByFingerprint.get(fp) ?? new Set<string>();
+    set.add(r.uid);
+    uidsByFingerprint.set(fp, set);
+  }
+  const owners = new Map<string, string>();
+  let last: DocumentSnapshot | null = null;
+  for (;;) {
+    let query = db.collection(PUSH_TOKEN_OWNER_COLLECTION).orderBy(FieldPath.documentId()).limit(pageSize);
+    if (last) query = query.startAfter(last);
+    const page = await query.get();
+    for (const doc of page.docs) owners.set(doc.id, String(doc.get("ownerUid") ?? ""));
+    if (page.size < pageSize) break;
+    last = page.docs[page.docs.length - 1];
+  }
+  const v: RegistryVerification = {
+    registrations: records.length,
+    distinctTokens: uidsByFingerprint.size,
+    tokensWithRecord: 0,
+    tokensWithoutRecord: 0,
+    tokensUnderMultipleAccounts: 0,
+    registrationsNotOwned: 0,
+    recordsWithoutOwnerRegistration: 0,
+    records: owners.size,
+    ok: false,
+  };
+  for (const [fp, uids] of uidsByFingerprint) {
+    if (uids.size > 1) v.tokensUnderMultipleAccounts += 1;
+    const owner = owners.get(fp);
+    if (owner === undefined) {
+      v.tokensWithoutRecord += 1;
+      continue;
+    }
+    v.tokensWithRecord += 1;
+    for (const uid of uids) if (uid !== owner) v.registrationsNotOwned += 1;
+  }
+  for (const [fp, owner] of owners) {
+    if (!uidsByFingerprint.get(fp)?.has(owner)) v.recordsWithoutOwnerRegistration += 1;
+  }
+  v.ok = v.tokensWithoutRecord === 0 && v.tokensUnderMultipleAccounts === 0 && v.registrationsNotOwned === 0;
+  return v;
 }

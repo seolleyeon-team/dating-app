@@ -1,5 +1,30 @@
+/**
+ * reportAndBlockUser — account reports with mutual blocks.
+ *
+ * NEW-20 source authority (2026-11-11). The live revision
+ * reportandblockuser-00009-dak (deployed 2026-09-21) was built from a tree
+ * that exists in no git ref. Compared symbol by symbol against this file:
+ *   preserved from live  server-derived 24 h `deadlineAt`, `reportKind`,
+ *                        review fixtures in the same `pending` queue,
+ *                        the suspended-account gate in resolveAuthedAppUser
+ *   rejected from live   Bamboo post/comment reports through this callable
+ *                        (client-supplied author uid checked against the
+ *                        post = authorship oracle, `contentSnapshot.authorId`,
+ *                        a real-name mutual block revealing the reporter) —
+ *                        P0-3 moved those to reportBambooContent; the
+ *                        "moderation fixture" second review login
+ *   added here           content references refused before any read (no
+ *                        account-existence oracle), bounded `source`, one
+ *                        open report per reporter→reported pair, report and
+ *                        both blocks in one transaction
+ * Drift from now on: the guarded deploy compares the live archive with the
+ * reviewed tree before any redeploy (docs/audits/…/06-p1-13-new-20.md).
+ */
+import { createHash } from "node:crypto";
+
 import {
   FieldValue,
+  Timestamp,
   type Firestore,
 } from "firebase-admin/firestore";
 import {
@@ -18,6 +43,29 @@ export const REPORT_AND_BLOCK_USER_CALLABLE_OPTIONS: CallableOptions = {
 
 export const MAX_REPORT_REASON_LENGTH = 500;
 export const MAX_REPORT_DETAILS_LENGTH = 2000;
+/** Operations review SLA (communityModeration deadline alerts use the same 24 h). */
+export const REPORT_REVIEW_DEADLINE_MS = 24 * 60 * 60 * 1000;
+/** Screen tokens the app sends (profile, chat, profile_specific_detail_screen, …). */
+const REPORT_SOURCE = /^[a-z][a-z0-9_]{0,63}$/;
+const OPEN_REPORT_STATUSES = new Set(["pending", "reviewing"]);
+
+/**
+ * Moderation / account state that refuses every app callable (shared by
+ * resolveAuthedAppUser). Mirrors decideCommunityReport's suspend/ban writes.
+ */
+export function isSuspendedAccountData(data: Record<string, unknown>): boolean {
+  const status = typeof data.status === "string" ? data.status.trim().toLowerCase() : "";
+  return data.loginDisabled === true ||
+    data.isActive === false ||
+    ["banned", "blocked", "deleted", "suspended", "withdrawn"].includes(status);
+}
+
+/** Deterministic id of the open account report of one reporter → reported pair. */
+export function accountReportId(reporterUid: string, reportedUid: string): string {
+  return "account_" + createHash("sha256")
+    .update(`account_report_v1\u0000${reporterUid}\u0000${reportedUid}`)
+    .digest("hex").slice(0, 40);
+}
 
 type ResolvedCallableUser = {
   userId: string;
@@ -211,75 +259,104 @@ export function createReportAndBlockUserFunction(
         );
       }
 
+      // NEW-20: any content reference is refused BEFORE any read. The only
+      // content reports this callable ever verified were Bamboo posts/comments
+      // (now reportBambooContent); an unknown or oddly spelled content type
+      // must not reach a lookup whose outcome (not-found vs accepted) could be
+      // observed.
+      if (
+        data.contentType != null ||
+        data.contentId != null ||
+        data.parentContentId != null
+      ) {
+        throw new HttpsError("invalid-argument", "unsupported content report.");
+      }
+      if (data.source !== undefined && data.source !== null && !REPORT_SOURCE.test(String(data.source))) {
+        throw new HttpsError("invalid-argument", "source is invalid.");
+      }
+
       const plan = buildReportAndBlockPlan({
         reporterUid: user.userId,
         reportedUid: data.reportedUserId,
         reason: data.reason,
         details: data.details,
         source: data.source,
-        contentType: data.contentType,
-        contentId: data.contentId,
-        parentContentId: data.parentContentId,
       });
 
-      const reportedSnap = await firestore
-        .collection("users")
-        .doc(plan.reportedUid)
-        .get();
-      if (!reportedSnap.exists) {
-        throw new HttpsError("not-found", "신고할 사용자를 찾을 수 없어요.");
-      }
       const reporterPartition = dataPartitionOf(user.data);
-      const reportedPartition = dataPartitionOf(
-        reportedSnap.data() as Record<string, unknown> | undefined,
-      );
-      if (
-        !["production", "play_review"].includes(reporterPartition) ||
-        reporterPartition !== reportedPartition
-      ) {
-        throw new HttpsError(
-          "permission-denied",
-          "Account partitions do not match.",
+      const reportedRef = firestore.collection("users").doc(plan.reportedUid);
+      // One open report per (reporter, reported) pair: a retry or a repeated
+      // report while moderation is still open returns the same report.
+      const openReportRef = firestore
+        .collection("reports")
+        .doc(accountReportId(plan.reporterUid, plan.reportedUid));
+
+      return firestore.runTransaction(async (tx) => {
+        const [reportedSnap, openSnap] = await Promise.all([
+          tx.get(reportedRef),
+          tx.get(openReportRef),
+        ]);
+        if (!reportedSnap.exists) {
+          throw new HttpsError("not-found", "신고할 사용자를 찾을 수 없어요.");
+        }
+        const reportedPartition = dataPartitionOf(
+          reportedSnap.data() as Record<string, unknown> | undefined,
         );
-      }
-
-      // The only content reports this callable ever verified were Bamboo
-      // posts/comments, which now go through reportBambooContent. Any other
-      // content reference cannot be checked, so it is refused.
-      if (plan.reportData.contentType != null || plan.reportData.contentId != null) {
-        throw new HttpsError("invalid-argument", "unsupported content report.");
-      }
-
-      const now = FieldValue.serverTimestamp();
-      const reportRef = firestore.collection("reports").doc();
-      const batch = firestore.batch();
-
-      batch.set(reportRef, {
-        ...plan.reportData,
-        status: reporterPartition === "play_review" ? "test_only" : "pending",
-        dataPartition: reporterPartition,
-        reviewFixture: reporterPartition === "play_review",
-        createdAt: now,
-      });
-      for (const write of plan.blockWrites) {
-        batch.set(
-          firestore
-            .collection("blocks")
-            .doc(write.ownerUid)
-            .collection("targets")
-            .doc(write.targetUid),
-          {
-            ...write.data,
+        if (
+          !["production", "play_review"].includes(reporterPartition) ||
+          reporterPartition !== reportedPartition
+        ) {
+          throw new HttpsError(
+            "permission-denied",
+            "Account partitions do not match.",
+          );
+        }
+        const openStatus = openSnap.exists ? String(openSnap.get("status") ?? "") : "";
+        const reportRef = !openSnap.exists
+          ? openReportRef
+          : OPEN_REPORT_STATUSES.has(openStatus)
+            ? null
+            : firestore.collection("reports").doc();
+        const now = FieldValue.serverTimestamp();
+        if (reportRef) {
+          // Production schema of the live moderation contract (recovered from
+          // reportandblockuser-00009-dak): server-derived 24 h review deadline,
+          // report kind, and the same operations queue for review fixtures
+          // (the partition keeps them isolated). Never a content snapshot here.
+          tx.create(reportRef, {
+            ...plan.reportData,
+            status: "pending",
+            reportKind: "profile",
+            contentSnapshot: null,
+            deadlineAt: Timestamp.fromMillis(Date.now() + REPORT_REVIEW_DEADLINE_MS),
             dataPartition: reporterPartition,
             reviewFixture: reporterPartition === "play_review",
             createdAt: now,
-          },
-          { merge: true }
-        );
-      }
-      await batch.commit();
-
-      return { reportId: reportRef.id, blockedBothDirections: true };
+          });
+        }
+        // The report and both blocks commit together or not at all.
+        for (const write of plan.blockWrites) {
+          tx.set(
+            firestore
+              .collection("blocks")
+              .doc(write.ownerUid)
+              .collection("targets")
+              .doc(write.targetUid),
+            {
+              ...write.data,
+              dataPartition: reporterPartition,
+              reviewFixture: reporterPartition === "play_review",
+              createdAt: now,
+            },
+            { merge: true }
+          );
+        }
+        return {
+          reportId: (reportRef ?? openReportRef).id,
+          blockedBothDirections: true,
+          ...(reportRef ? {} : { duplicate: true }),
+        };
+      });
     }
   );
 }

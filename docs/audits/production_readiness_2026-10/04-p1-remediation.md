@@ -394,3 +394,17 @@ need the owner-run guarded deploy.
 Rules diff `09fefca1..3fc228dc` adds no new `allow` grant (the only new rule
 is the server-only deny for `pushTokenOwners`); every other change tightens an
 existing condition.
+
+## 6. Production rollout (2026-11-10, executed)
+
+Executed from PR #156 (`f460c3cf`): Android CI root cause fixed
+(google-services 4.4.2), guard extension for the new retry trigger, P1-3
+race-safe backfill with canary/verify and fail-closed delivery. Drift audit of
+all 21 affected functions (symbol-level reachability over live / base /
+candidate: only P1 changes plus already-merged P0-3 / NEW-19 / security code;
+nothing outside git is reachable), staged guarded deploys A–G (new trigger →
+FCM backfill verified → matching pair → chat → push senders → blind meeting →
+deletion/media), Rules `19d95b64`, live security tests 55/55 with residue 0,
+0 errors after the rollout. Full record, per-stage rollback targets and the
+audit counts: `05-p1-production-rollout.md`.
+

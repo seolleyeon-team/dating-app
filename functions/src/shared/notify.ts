@@ -168,14 +168,17 @@ export async function fetchUserTokenRecords(
     })));
   }
   if (verdict.unregistered.length > 0) {
-    // Transitional: registrations that predate the registry (no trigger
-    // event yet, backfill not run). Delivered as before, surfaced in logs.
-    logger.info("Device tokens without an ownership record delivered (legacy)", {
+    // Fail closed: without a registry record nothing proves the token still
+    // belongs to this account (it may be another account's device). The
+    // rollout deploys onDeviceTokenWritten and completes the backfill before
+    // this code, so a missing record only means the registration's trigger
+    // event has not run yet (it retries); the next push after it is delivered.
+    logger.warn("Device tokens without an ownership record not delivered", {
       userId,
       unregisteredCount: verdict.unregistered.length,
     });
   }
-  const deliverable = new Set([...verdict.owned, ...verdict.unregistered]);
+  const deliverable = new Set(verdict.owned);
   return eligible.filter((record) => deliverable.has(record.token));
 }
 
