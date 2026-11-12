@@ -252,3 +252,36 @@ test("chat_rooms: clients cannot create meeting rooms or attach match linkage", 
     })
   );
 });
+
+// ---------------------------------------------------------------------------
+// P1-13 — server-owned season meeting evidence is invisible and unwritable
+// for clients, including the meeting's own participants.
+// ---------------------------------------------------------------------------
+
+test("season P1-13: schedule lock, no-show reports, intents and cancel audit are server-only", async () => {
+  await withClearedDb(async (db) => {
+    await seedSeasonDocs(db);
+    await setDoc(doc(db, "eventThreeVsThreeMatches", "match1", "serverState", "schedule"), {
+      promiseId: "p1", meetupStartAtMs: 1, version: 1,
+    });
+    await setDoc(doc(db, "eventThreeVsThreeMatches", "match1", "noShowReports", "ns_1"), {
+      reporterUid: ALICE, accusedUid: BOB, status: "pending_review",
+    });
+    await setDoc(doc(db, "seasonDepositIntents", "sdi_1"), { participantUid: ALICE, meetingId: "match1", status: "created" });
+    await setDoc(doc(db, "seasonMeetingCancelAudit", "match1"), { actorUid: ALICE, meetingId: "match1" });
+  });
+  const alice = await kakaoSession(ALICE);
+  const bob = await kakaoSession(BOB);
+  await assertFails(getDoc(doc(alice, "eventThreeVsThreeMatches", "match1", "serverState", "schedule")));
+  await assertFails(setDoc(doc(alice, "eventThreeVsThreeMatches", "match1", "serverState", "schedule"), {
+    promiseId: "p1", meetupStartAtMs: 0, version: 9,
+  }));
+  await assertFails(getDoc(doc(bob, "eventThreeVsThreeMatches", "match1", "noShowReports", "ns_1")));
+  await assertFails(setDoc(doc(bob, "eventThreeVsThreeMatches", "match1", "noShowReports", "ns_forged"), {
+    reporterUid: BOB, accusedUid: ALICE, status: "pending_review",
+  }));
+  await assertFails(getDoc(doc(alice, "seasonDepositIntents", "sdi_1")));
+  await assertFails(updateDoc(doc(alice, "seasonDepositIntents", "sdi_1"), { status: "captured" }));
+  await assertFails(getDoc(doc(alice, "seasonMeetingCancelAudit", "match1")));
+  await assertFails(setDoc(doc(bob, "seasonMeetingCancelAudit", "match1"), { refund: { action: "full_refund" } }));
+});

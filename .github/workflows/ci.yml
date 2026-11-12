@@ -178,6 +178,24 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,auth
           --project demo-p03-migration
           "node --test scripts/bamboo_privacy_migration.test.mjs scripts/bamboo_privacy_migration.emulator-test.mjs"
+      # P1-13: season meeting callables decide from server-owned records only —
+      # forged meeting time / grace / check-in, accusing an outsider, a member
+      # cancelling the whole 3:3, caller-chosen refund window and deposit
+      # state, cross-user idempotency keys, orphan intents, refund policy and
+      # concurrency; plus the server-observed schedule trigger end to end.
+      - name: P1-13 season meeting trust boundary (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p113-season
+          "node --test functions/.ci-emulator-lib/seasonMeetingSecurity.emulator-test.js functions/.ci-emulator-lib/seasonMeetingScheduleLock.emulator-test.js"
+      # NEW-20: reportAndBlockUser production contract recovered from the live
+      # revision (24 h deadline, report kind, review queue, suspended-account
+      # gate) with the P0-3 protections the live revision lacked.
+      - name: NEW-20 report and block production contract (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-new20
+          "node --test functions/.ci-emulator-lib/reportAndBlock.emulator-test.js"
 
   storage-rules:
     name: Storage rules tests

@@ -95,6 +95,7 @@ import {
   createSeasonMeetingRefundFunction,
   createSeasonMeetingReportNoShowFunction,
 } from "./seasonMeetingOperations";
+import { createSeasonScheduleLockTrigger } from "./seasonMeetingScheduleLock";
 import {
   createAvatarJobSourceRetentionTrigger,
   createAvatarSourceRetentionRecoveryTrigger,
@@ -132,7 +133,7 @@ import {
   createRespondTeamMeetingRequestFunction,
   createTeamMeetingRequestFunction,
 } from "./teamMeetingRequest";
-import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { createReportAndBlockUserFunction, isSuspendedAccountData } from "./reportAndBlock";
 import { createCommunitySafetyCallables } from "./communitySafety";
 import { createSendChatTextFunction } from "./chatSafety";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
@@ -1267,6 +1268,13 @@ async function resolveAuthedAppUser(
 
   const userId = doc.id;
   const data = (doc.data() ?? {}) as Record<string, unknown>;
+  // NEW-20 (recovered from the live reportandblockuser-00009-dak source): a
+  // moderation suspension (decideCommunityReport writes loginDisabled /
+  // isActive:false / status and revokes refresh tokens) must also stop an
+  // ID token that was issued before the suspension and is still valid.
+  if (isSuspendedAccountData(data)) {
+    throw new HttpsError("permission-denied", "이용이 정지된 계정이에요.");
+  }
   const studentEmail = asNonEmptyString(data.studentEmail)?.toLowerCase() ?? "";
   const isStudentVerified = data.isStudentVerified === true;
   if (!isStudentVerified || !studentEmail.endsWith("@yonsei.ac.kr")) {
@@ -2545,6 +2553,8 @@ export const claimSeasonMeetingReplacementSeat =
   createSeasonMeetingClaimReplacementFunction(db, resolveAuthedAppUser);
 export const refundSeasonMeetingDeposit =
   createSeasonMeetingRefundFunction(db, resolveAuthedAppUser);
+// P1-13: the server-observed schedule the season callables rely on.
+export const onSeasonMeetingPromiseWritten = createSeasonScheduleLockTrigger(db);
 
 export const purgeExpiredEmailLinkTokens =
   createPurgeExpiredEmailLinkTokensSchedule(db);
