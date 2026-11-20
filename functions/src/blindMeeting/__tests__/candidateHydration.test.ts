@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 
 import { buildCandidate } from "../store";
 import { resolveBlindMeetingHandler, BLIND_MEETING_ACTIONS } from "../callables";
+import { resolveBlindMeetingOpsHandler, BLIND_MEETING_OPS_ACTIONS } from "../ops";
 
 const DATE = "2026-08-01";
 
@@ -205,6 +206,25 @@ describe("callable dispatcher: prototype 오염 방어", () => {
         resolveBlindMeetingHandler(action),
         null,
         `${action} 은 거부돼야 한다 (인증 우회 경로)`
+      );
+    }
+  });
+});
+
+describe("ops dispatcher: prototype 오염 방어", () => {
+  it("실제 운영 action 은 해석된다", () => {
+    assert.ok(BLIND_MEETING_OPS_ACTIONS.length > 0);
+    for (const action of BLIND_MEETING_OPS_ACTIONS) {
+      assert.equal(typeof resolveBlindMeetingOpsHandler(action), "function", action);
+    }
+  });
+
+  it("Object.prototype 속성은 운영 handler 로 해석되지 않는다", () => {
+    for (const action of ["constructor", "__proto__", "toString", "valueOf", "hasOwnProperty", "", "unknownAction"]) {
+      assert.equal(
+        resolveBlindMeetingOpsHandler(action),
+        null,
+        `${action} 은 거부돼야 한다 (requireAdmin 을 거치지 않는 경로)`
       );
     }
   });

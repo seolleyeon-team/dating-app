@@ -105,11 +105,13 @@ import {
   dateKeyOfSlotId,
   fallbackSlotIdFor,
   isDateKeyWithinWindow,
+  isPastDateKey,
   isValidDateKey,
   isValidSlotId,
   normalizeDateKeys,
   readDateKeys,
   slotStartAt,
+  type BlindMeetingStatus,
 } from "./types";
 
 // -----------------------------------------------------------------------------
@@ -164,6 +166,9 @@ function poolForAlcoholMode(pool: Candidate[], alcoholFree: boolean): Candidate[
  */
 export async function runMatchingForDate(dateKey: string): Promise<string[]> {
   if (!isValidDateKey(dateKey)) return [];
+  // open 신청서에 남아 있는 지난 날짜(및 ops 재매칭의 과거 matchedDateKey)로는
+  // 미팅을 만들지 않는다. isPastDateKey 참고.
+  if (isPastDateKey(dateKey, Date.now())) return [];
 
   const policy = await loadPolicy();
   // 생활권 hard filter 의 rollout activation. OFF 면 생활권 조건만 비활성이고
@@ -1638,6 +1643,14 @@ export async function settleCancellation(params: {
   }
 }
 
+/** 다섯 명 진행 여부는 미팅이 시작되기 전에만 물을 수 있다. */
+const FIVE_PERSON_VOTE_MEETING_STATUSES: ReadonlySet<BlindMeetingStatus> = new Set([
+  "confirmed",
+  "chat_open",
+  "schedule_confirmed",
+  "checkin_open",
+]);
+
 /** 다섯 명 진행 투표 */
 export async function voteFivePersonException(params: {
   meetingId: string;
@@ -1647,6 +1660,20 @@ export async function voteFivePersonException(params: {
   const meeting = await loadMeeting(params.meetingId);
   if (!meeting.participantIds.includes(params.userId)) {
     throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
+  }
+
+  // 투표는 서버가 결원을 확정해 열었을 때만 존재한다
+  // (finalizeCancellationWithoutReplacement 의 fivePersonVoteOpen). 이 확인이
+  // 없으면 참가자 한 명이 매칭 직후든 미팅이 끝난 뒤든 `agree: false` 한 번으로
+  // 미팅 전체를 취소시킨다 (아래 veto 는 열린 투표에 대한 것이다).
+  if (
+    meeting.raw.fivePersonVoteOpen !== true ||
+    !FIVE_PERSON_VOTE_MEETING_STATUSES.has(meeting.status)
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "지금은 다섯 명 진행 투표가 열려 있지 않아요."
+    );
   }
 
   // participantIds 는 좌석 명부라 노쇼·취소된 사람도 그대로 남는다.
@@ -2104,9 +2131,13 @@ export async function submitFollowUpChoice(params: {
     .collection(BLIND_MEETING_COLLECTIONS.followUpChoices)
     .doc(params.userId);
 
-  const written = await db().runTransaction(async (tx) => {
+  // 이미 제출된 선택이 있으면 그 저장된 선택(재시도 요청의 payload 가 아니라)을
+  // 돌려받는다.
+  const alreadySubmitted = await db().runTransaction(async (tx) => {
     const snap = await tx.get(choiceRef);
-    if (snap.exists && snap.data()?.submittedAt) return false;
+    if (snap.exists && snap.data()?.submittedAt) {
+      return asStrArray(snap.data()?.selectedUids);
+    }
     tx.set(
       choiceRef,
       {
@@ -2118,10 +2149,16 @@ export async function submitFollowUpChoice(params: {
       },
       { merge: true }
     );
-    return true;
+    return null;
   });
 
-  if (!written) return { ok: false, code: "already_submitted" };
+  if (alreadySubmitted != null) {
+    // 첫 제출이 선택을 commit 한 뒤 상호 매칭 처리 도중 실패했을 수 있다.
+    // 그 재시도가 여기로 온다: 저장된 선택으로 남은 처리를 마저 끝낸다
+    // (resolveMutualMatches 는 완료된 쌍을 건너뛴다).
+    await resolveMutualMatches(params.meetingId, params.userId, alreadySubmitted);
+    return { ok: false, code: "already_submitted" };
+  }
 
   await resolveMutualMatches(params.meetingId, params.userId, unique);
   return { ok: true };
@@ -2161,17 +2198,24 @@ export async function resolveMutualMatches(
       .collection("mutualMatches")
       .doc(pairKey(chooserUid, partnerUid));
 
-    const isNew = await db().runTransaction(async (tx) => {
+    // 매치 문서는 있는데 chatRoomId 가 없으면 이전 실행이 방을 만들기 전에
+    // 실패한 것이다. "이미 있음" 으로 건너뛰면 서로 선택한 두 사람에게 방도
+    // 알림도 영영 생기지 않는다. 아래 단계는 모두 멱등이라 이어서 끝낸다
+    // (ensureDirectChat 은 있는 방을 그대로 두고, 알림은 dedupe key 를 쓴다).
+    const complete = await db().runTransaction(async (tx) => {
       const snap = await tx.get(matchRef);
-      if (snap.exists) return false;
+      if (snap.exists) {
+        const chatRoomId = snap.data()?.chatRoomId;
+        return typeof chatRoomId === "string" && chatRoomId.length > 0;
+      }
       tx.set(matchRef, {
         meetingId,
         userIds: [chooserUid, partnerUid].sort(),
         matchedAt: FieldValue.serverTimestamp(),
       });
-      return true;
+      return false;
     });
-    if (!isNew) continue;
+    if (complete) continue;
 
     const roomId = await ensureDirectChat(chooserUid, partnerUid);
     await matchRef.set({ chatRoomId: roomId }, { merge: true });
