@@ -287,6 +287,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 러너 이미지의 기본 JDK 에 기대지 않는다. ubuntu-latest 의 기본값이 25 로
+      # 올라가자 이 job 만 "Java 25.0.5 is incompatible with Gradle 8.14.3" 로
+      # 깨졌다 (release AAB job 은 이미 17 을 고정하고 있어 영향이 없었다).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - uses: subosito/flutter-action@v2
         with:
           # 릴리스 검증 기준 SDK. floating stable 은 formatter/analyzer/위젯
