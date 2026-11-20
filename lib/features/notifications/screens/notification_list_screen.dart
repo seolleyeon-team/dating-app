@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 
 import '../../../router/route_names.dart';
@@ -6,6 +8,7 @@ import '../../event/models/event_team_route_args.dart';
 import '../../chat/models/safety_stamp_follow_up_args.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
+import '../../../shared/utils/safe_catch.dart';
 import '../models/app_notification.dart';
 import '../services/notification_service.dart';
 
@@ -53,9 +56,15 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     if (userId == null || userId.isEmpty) return;
 
     if (!notification.isRead) {
-      await _notificationService.markAsRead(
-        userId: userId,
-        notificationId: notification.id,
+      // 읽음 표시를 기다리지 않는다. Firestore write 의 future 는 서버 ack 전
+      // (오프라인)에는 끝나지 않고, 실패하면 예외가 나서 아래 이동이 통째로
+      // 건너뛰어졌다. 알림을 눌렀으면 읽음 표시와 무관하게 이동해야 한다.
+      unawaited(
+        _notificationService
+            .markAsRead(userId: userId, notificationId: notification.id)
+            .catchError((Object error, StackTrace stackTrace) {
+              logCaughtError('NotificationMarkRead', error, stackTrace);
+            }),
       );
     }
 

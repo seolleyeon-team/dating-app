@@ -6,6 +6,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/event_team_service.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
+import '../../../shared/utils/error_text.dart';
 import '../../profile/widgets/friends_list_shared.dart';
 import '../models/event_team_route_args.dart';
 
@@ -120,10 +121,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
     if (e is FirebaseFunctionsException) {
       return e.message ?? '요청을 처리하지 못했어요.';
     }
-    return e
-        .toString()
-        .replaceFirst('Exception: ', '')
-        .replaceFirst('StateError: ', '');
+    return userFacingErrorText(e);
   }
 
   Future<void> _sendInvites() async {

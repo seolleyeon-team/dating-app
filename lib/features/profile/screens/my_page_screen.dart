@@ -69,6 +69,9 @@ class _MyPageScreenState extends State<MyPageScreen> {
     final canReadFriends = kakaoUserId != null && kakaoUserId.isNotEmpty
         ? await _authService.ensureCanonicalAppSession()
         : false;
+    // 위 await 사이에 화면이 닫혔으면 구독을 만들지 않는다. dispose 가 이미
+    // 끝났기 때문에 여기서 만든 구독은 아무도 해제하지 못한다.
+    if (!mounted) return;
 
     if (canReadFriends) {
       // Live count from the canonical friend edges: an accepted invite moves
@@ -111,6 +114,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
 
     final mainPhotoUrl = ProfileDisplayImageResolver.resolve(user);
 
+    if (!mounted) return;
     setState(() {
       nickname = (onboarding['nickname']?.toString().isNotEmpty ?? false)
           ? onboarding['nickname'].toString()

@@ -186,17 +186,35 @@ class EventTeamService {
     return id;
   }
 
+  /// 기기에 저장해 둔 팀 설정 id 로 문서를 읽는다. 없거나 더는 읽을 수 없으면 null.
+  ///
+  /// 팀 설정은 멤버만 읽을 수 있다. 팀에서 빠졌거나 팀이 사라진 뒤에도 기기에는
+  /// 예전 id 가 남는데, 그 문서의 get 은 빈 스냅샷이 아니라 permission-denied 로
+  /// 끝난다. 그 예외가 그대로 올라가면 팀 화면 초기화가 매번 같은 지점에서
+  /// 실패해 화면을 영영 열 수 없다. 못 읽는 저장 id 는 "없음"이다.
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _readTeamSetupIfAccessible(
+    String teamSetupId,
+  ) async {
+    try {
+      final snap = await _firestore
+          .collection('eventTeamSetups')
+          .doc(teamSetupId)
+          .get();
+      return snap.exists && snap.data() != null ? snap : null;
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') return null;
+      rethrow;
+    }
+  }
+
   /// Cloud Function이 일시 실패해도, 로컬에 저장된 팀 ID가 Firestore에 있고 내가 리더면 화면만 살린다.
   Future<String?> recoverTeamSetupIfLeader({
     required String kakaoUserId,
     required String savedTeamSetupId,
   }) async {
     if (savedTeamSetupId.isEmpty) return null;
-    final snap = await _firestore
-        .collection('eventTeamSetups')
-        .doc(savedTeamSetupId)
-        .get();
-    if (!snap.exists || snap.data() == null) return null;
+    final snap = await _readTeamSetupIfAccessible(savedTeamSetupId);
+    if (snap == null) return null;
     final leader = snap.data()!['leaderUserId']?.toString() ?? '';
     if (leader != kakaoUserId) return null;
     return savedTeamSetupId;
@@ -210,13 +228,8 @@ class EventTeamService {
 
     final snapshotsById = <String, DocumentSnapshot<Map<String, dynamic>>>{};
     if (preferredTeamSetupId != null && preferredTeamSetupId.isNotEmpty) {
-      final preferred = await _firestore
-          .collection('eventTeamSetups')
-          .doc(preferredTeamSetupId)
-          .get();
-      if (preferred.exists && preferred.data() != null) {
-        snapshotsById[preferred.id] = preferred;
-      }
+      final preferred = await _readTeamSetupIfAccessible(preferredTeamSetupId);
+      if (preferred != null) snapshotsById[preferred.id] = preferred;
     }
 
     final acceptedQuery = await _firestore

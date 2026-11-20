@@ -14,6 +14,8 @@ import '../../../../constants/profile_options.dart';
 import '../../../../router/route_names.dart';
 import '../../../../services/onboarding_save_helper.dart';
 import '../../../../services/storage_service.dart';
+import '../../../../shared/utils/safe_catch.dart';
+import '../../widgets/onboarding_save_failure.dart';
 import '../../../../services/user_service.dart';
 
 // =============================================================================
@@ -45,6 +47,7 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
   final UserService _userService = UserService();
   bool _isSavingOnExit = false;
   bool _isSkipping = false;
+  bool _isSaving = false;
 
   bool get _hasAnySelection => _selectedKeywords.isNotEmpty;
 
@@ -98,10 +101,22 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
   }
 
   Future<void> _onSavePressed() async {
+    // 저장은 순차 write 여러 번이라 1~3초 걸린다. 그 사이의 두 번째 탭이 같은
+    // 저장을 다시 돌리고 아바타 선택 화면을 한 장 더 쌓지 않게 한다.
+    if (_isSaving) return;
+    _isSaving = true;
     HapticFeedback.mediumImpact();
-    await OnboardingSaveHelper.saveIdealPersonalityFinal(
-      _selectedKeywords.toList(),
-    );
+    try {
+      await OnboardingSaveHelper.saveIdealPersonalityFinal(
+        _selectedKeywords.toList(),
+      );
+    } catch (error, stackTrace) {
+      logCaughtError('IdealPersonalitySave', error, stackTrace);
+      _isSaving = false;
+      if (mounted) await showOnboardingSaveFailure(context);
+      return;
+    }
+    _isSaving = false;
     if (!mounted) return;
     // 온보딩 완료는 아바타 선택(마지막) 화면이 승인 뒤에 기록한다.
     Navigator.of(context).pushNamed(RouteNames.onboardingAvatarSelect);
@@ -111,7 +126,16 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
     if (_isSkipping) return;
     HapticFeedback.lightImpact();
     setState(() => _isSkipping = true);
-    await OnboardingSaveHelper.skipIdealType();
+    try {
+      await OnboardingSaveHelper.skipIdealType();
+    } catch (error, stackTrace) {
+      logCaughtError('IdealTypeSkip', error, stackTrace);
+      if (!mounted) return;
+      // 실패해도 버튼은 다시 눌려야 한다.
+      setState(() => _isSkipping = false);
+      await showOnboardingSaveFailure(context);
+      return;
+    }
     if (!mounted) return;
     setState(() => _isSkipping = false);
     Navigator.of(context).pushNamed(RouteNames.onboardingAvatarSelect);

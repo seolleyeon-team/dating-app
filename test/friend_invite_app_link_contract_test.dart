@@ -15,8 +15,17 @@ void main() {
     'android/app/src/main/AndroidManifest.xml',
   ).readAsStringSync();
   final mainDart = File('lib/main.dart').readAsStringSync();
-  final entitlements = File(
+  // 빌드 구성마다 서명에 쓰는 entitlements 가 다르다 (project.pbxproj 의
+  // CODE_SIGN_ENTITLEMENTS: Debug / Release / Profile). 스토어에 나가는 것은
+  // Release 다. Profile 용 파일 하나만 확인하던 시절에는 Release 에 초대
+  // 도메인이 빠진 채로 이 테스트가 통과했다.
+  const entitlementFiles = [
+    'ios/Runner/RunnerDebug.entitlements',
+    'ios/Runner/RunnerRelease.entitlements',
     'ios/Runner/Runner.entitlements',
+  ];
+  final xcodeProject = File(
+    'ios/Runner.xcodeproj/project.pbxproj',
   ).readAsStringSync();
   final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
   final firebaseJson =
@@ -116,10 +125,24 @@ void main() {
   });
 
   group('iOS', () {
-    test('associated domains include the production custom domain', () {
-      expect(entitlements, contains('applinks:seolleyeon.com'));
-      for (final host in FriendInviteService.legacyInviteWebHosts) {
-        expect(entitlements, contains('applinks:$host'));
+    test('every signing configuration claims the production custom domain', () {
+      final signedWith =
+          RegExp(r'CODE_SIGN_ENTITLEMENTS = (Runner/[A-Za-z]+\.entitlements);')
+              .allMatches(xcodeProject)
+              .map((match) => 'ios/${match.group(1)}')
+              .toSet();
+      expect(signedWith, entitlementFiles.toSet());
+
+      for (final path in entitlementFiles) {
+        final entitlements = File(path).readAsStringSync();
+        expect(
+          entitlements,
+          contains('applinks:${FriendInviteService.inviteWebHost}'),
+          reason: path,
+        );
+        for (final host in FriendInviteService.legacyInviteWebHosts) {
+          expect(entitlements, contains('applinks:$host'), reason: path);
+        }
       }
     });
 

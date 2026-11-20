@@ -1038,10 +1038,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     if (shouldDelete != true) return;
 
-    await _chatService.cancelPromise(
-      roomId: _roomId,
-      promiseId: message.promiseId!,
-      cancelledBy: _currentUserId!,
+    await _runPromiseAction(
+      () => _chatService.cancelPromise(
+        roomId: _roomId,
+        promiseId: message.promiseId!,
+        cancelledBy: _currentUserId!,
+      ),
+      '약속을 삭제하지 못했어요. 약속 상태가 바뀌었을 수 있어요.',
     );
   }
 
@@ -1951,7 +1954,12 @@ class _MessageItem extends StatelessWidget {
       case MessageType.promiseConfirmed:
         return _PromiseConfirmedBanner(
           message: message,
-          onEdit: onEditPromise,
+          // 수정은 약속 문서와 이 카드 메시지를 한 트랜잭션으로 고친다. 수락한
+          // 쪽이 고치면 카드의 senderId 가 바뀌는데, 메시지 규칙
+          // (onlyPromiseMessageLifecycleUpdate)은 senderId 변경을 거부하므로
+          // 그 트랜잭션은 항상 실패한다. 규칙이 그 경로를 열기 전까지는
+          // 실패할 수밖에 없는 버튼을 제안자에게만 활성화한다.
+          onEdit: message.isMineRequest ? onEditPromise : null,
           // 약속 삭제(취소)는 제안한 사람만 할 수 있다.
           // 규칙(promiseStatusTransitionOk)과 같은 조건이어야 상대에게
           // 눌러도 아무 일이 안 일어나는 버튼을 보여주지 않는다.

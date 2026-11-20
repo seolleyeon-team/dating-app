@@ -10,6 +10,10 @@
 ///     page (the live page shifts as new messages arrive)
 ///   - ordering is by `createdAt` then id, exactly the query order
 ///   - `hasMore` is derived from the size of the last loaded page
+///   - a message the live window no longer reports (the `limit` listener
+///     drops its oldest entry for every new arrival) stays in the list
+///   - the paging cursor is the oldest *paged* message; promise supplements
+///     are fetched out of band and must never move it
 ///
 /// Promise cards: the UI merges `promise_*` messages by `promiseId`. If a
 /// lifecycle message is loaded but its `promise_request` sits beyond the
@@ -37,6 +41,9 @@ class MessagePageMerger<T> {
   List<T> _livePage = const [];
   final List<List<T>> _olderPages = [];
   final Map<String, T> _promiseSupplements = {};
+
+  /// Messages a previous live page held and the current one no longer does.
+  final Map<String, T> _slidOutOfLivePage = {};
   bool _hasMore = true;
 
   bool get hasMore => _hasMore;
@@ -44,9 +51,32 @@ class MessagePageMerger<T> {
 
   /// Replaces the realtime newest page (descending order as queried).
   void setLivePage(List<T> newestFirst) {
+    final nextIds = {for (final message in newestFirst) idOf(message)};
+    if (_livePage.isNotEmpty && newestFirst.isNotEmpty) {
+      final overlaps = _livePage.any(
+        (message) => nextIds.contains(idOf(message)),
+      );
+      if (overlaps) {
+        // The window moved forward by a few messages: keep what fell off its
+        // tail, it is still adjacent to everything already loaded.
+        for (final message in _livePage) {
+          final id = idOf(message);
+          if (!nextIds.contains(id)) _slidOutOfLivePage[id] = message;
+        }
+      } else {
+        // The window jumped past everything it held (long reconnect). What
+        // was loaded below is no longer adjacent to it; showing both would
+        // hide a gap of unknown size, so paging restarts from the new window.
+        _slidOutOfLivePage.clear();
+        _olderPages.clear();
+      }
+    }
+    _slidOutOfLivePage.removeWhere((id, _) => nextIds.contains(id));
     _livePage = List<T>.unmodifiable(newestFirst);
-    // With fewer than a full page in the live window there is nothing older.
-    if (_olderPages.isEmpty && newestFirst.length < pageSize) _hasMore = false;
+    // Until an older page is loaded, the live window alone says whether there
+    // is history below it. Not a latch: a partial (cache) snapshot can be
+    // followed by a full one, and a short room can grow past one page.
+    if (_olderPages.isEmpty) _hasMore = newestFirst.length >= pageSize;
   }
 
   /// Appends one older page (descending order as queried).
@@ -62,10 +92,17 @@ class MessagePageMerger<T> {
     }
   }
 
-  /// The oldest loaded message (cursor for the next older page), or null.
+  /// Cursor for the next older page: the oldest message of the paged window
+  /// (pages are newest-first, so the last entry), or null.
+  ///
+  /// Promise supplements are deliberately not candidates: a supplement can be
+  /// far older than the window, and starting after it would skip every
+  /// message in between for good.
   T? get oldestLoaded {
-    final all = merged();
-    return all.isEmpty ? null : all.first;
+    for (final page in _olderPages.reversed) {
+      if (page.isNotEmpty) return page.last;
+    }
+    return _livePage.isEmpty ? null : _livePage.last;
   }
 
   /// Ascending, de-duplicated, deterministically ordered.
@@ -81,6 +118,8 @@ class MessagePageMerger<T> {
     for (final message in _promiseSupplements.values) {
       byId.putIfAbsent(idOf(message), () => message);
     }
+    // After the supplements so a slid-out copy (seen live) wins over them.
+    byId.addAll(_slidOutOfLivePage);
     for (final message in _livePage) {
       byId[idOf(message)] = message;
     }
@@ -128,6 +167,7 @@ class MessagePageMerger<T> {
     _livePage = const [];
     _olderPages.clear();
     _promiseSupplements.clear();
+    _slidOutOfLivePage.clear();
     _hasMore = true;
   }
 }
