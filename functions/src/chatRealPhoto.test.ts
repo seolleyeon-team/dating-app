@@ -99,7 +99,7 @@ test("a text message plus valid chat participants and consent can use chat-profi
     hasTextMessage: true,
     requesterUid: "u1",
     targetUid: "u2",
-    requesterUserData: {},
+    blockedBetweenParticipants: false,
     targetUserData: approvedUser,
     privateMediaData: consentedPrivateMedia,
   });
@@ -119,7 +119,7 @@ test("participants without a text message receive only the approved avatar", () 
     hasTextMessage: false,
     requesterUid: "u1",
     targetUid: "u2",
-    requesterUserData: {},
+    blockedBetweenParticipants: false,
     targetUserData: approvedUser,
     privateMediaData: consentedPrivateMedia,
   });
@@ -138,7 +138,7 @@ test("non-participants are denied", () => {
     hasTextMessage: true,
     requesterUid: "u3",
     targetUid: "u2",
-    requesterUserData: {},
+    blockedBetweenParticipants: false,
     targetUserData: approvedUser,
     privateMediaData: consentedPrivateMedia,
   });
@@ -157,7 +157,7 @@ test("missing consent falls back to approved avatar", () => {
     hasTextMessage: true,
     requesterUid: "u1",
     targetUid: "u2",
-    requesterUserData: {},
+    blockedBetweenParticipants: false,
     targetUserData: approvedUser,
     privateMediaData: {
       photoConsent: { chatPartnerRealPhotoDisclosure: false },
@@ -179,7 +179,7 @@ test("private source bucket asset is never accepted for chat real photo", () => 
     hasTextMessage: true,
     requesterUid: "u1",
     targetUid: "u2",
-    requesterUserData: {},
+    blockedBetweenParticipants: false,
     targetUserData: approvedUser,
     privateMediaData: {
       photoConsent: { chatPartnerRealPhotoDisclosure: true },
@@ -205,7 +205,7 @@ test("blocked or inactive chats are denied", () => {
     hasTextMessage: true,
     requesterUid: "u1",
     targetUid: "u2",
-    requesterUserData: { blockedUserIds: ["u2"] },
+    blockedBetweenParticipants: true,
     targetUserData: approvedUser,
     privateMediaData: consentedPrivateMedia,
   });
@@ -217,9 +217,65 @@ test("blocked or inactive chats are denied", () => {
     hasTextMessage: true,
     requesterUid: "u1",
     targetUid: "u2",
-    requesterUserData: {},
+    blockedBetweenParticipants: false,
     targetUserData: approvedUser,
     privateMediaData: consentedPrivateMedia,
   });
   assert.equal(inactiveDecision.kind, "deny");
+});
+
+test("a block denies even when every other condition for a real photo holds", () => {
+  const open = {
+    roomExists: true,
+    roomData: activeRoom,
+    hasTextMessage: true,
+    requesterUid: "u1",
+    targetUid: "u2",
+    targetUserData: approvedUser,
+    privateMediaData: consentedPrivateMedia,
+  };
+  assert.equal(
+    evaluateChatRealPhotoAccess({ ...open, blockedBetweenParticipants: false }).kind,
+    "real_photo"
+  );
+  const blocked = evaluateChatRealPhotoAccess({ ...open, blockedBetweenParticipants: true });
+  assert.equal(blocked.kind, "deny");
+  // The legacy user-document fields are not a block source: nothing writes them.
+  assert.equal(
+    evaluateChatRealPhotoAccess({
+      ...open,
+      blockedBetweenParticipants: false,
+      targetUserData: { ...approvedUser, blockedUserIds: ["u1"] },
+    }).kind,
+    "real_photo"
+  );
+});
+
+test("moderated or withdrawn targets never get their real photo served", () => {
+  for (const state of [
+    { status: "banned" },
+    { status: "suspended" },
+    { status: "withdrawn" },
+    { status: "restricted_rejoin" },
+    { isActive: false },
+    { isWithdrawn: true },
+    { isDeleted: true },
+  ]) {
+    const decision = evaluateChatRealPhotoAccess({
+      roomExists: true,
+      roomData: activeRoom,
+      hasTextMessage: true,
+      requesterUid: "u1",
+      targetUid: "u2",
+      blockedBetweenParticipants: false,
+      targetUserData: { ...approvedUser, ...state },
+      privateMediaData: consentedPrivateMedia,
+    });
+    assert.equal(decision.kind, "fallback", JSON.stringify(state));
+    assert.equal(
+      decision.kind === "fallback" ? decision.reason : "",
+      "target_inactive",
+      JSON.stringify(state)
+    );
+  }
 });

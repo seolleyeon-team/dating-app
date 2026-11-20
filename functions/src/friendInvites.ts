@@ -7,6 +7,8 @@ import {
 } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 
+import { isSingleDocumentId } from "./shared/docId";
+
 // =============================================================================
 // Share-link invitations → Seolleyeon friendship / 3:3 team invitation
 //
@@ -358,7 +360,7 @@ export async function createTeamInviteRecord(
   const { db, leader } = params;
   assertCallerEligible(leader);
   const teamSetupId = asStringOrNull(params.teamSetupId)?.trim() ?? "";
-  if (!teamSetupId) {
+  if (!isSingleDocumentId(teamSetupId)) {
     throw new HttpsError("invalid-argument", "teamSetupId가 필요해요.");
   }
 

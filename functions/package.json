@@ -6,7 +6,7 @@
     "lint": "tsc --noEmit",
     "test": "npm run build && node --test \"lib/**/*.test.js\"",
     "serve": "npm run build && firebase emulators:start --only functions",
-    "deploy": "npm run build && firebase deploy --only functions"
+    "deploy": "node -e \"console.error('Refused: this would redeploy every function with whatever env file is local, bypassing the env regression guard (2026-09-08 incident). Deploy named functions with scripts/deploy_functions_guarded.sh.'); process.exit(1)\""
   },
   "engines": {
     "node": "22"

@@ -4,10 +4,11 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 import type { Auth } from "firebase-admin/auth";
-import type { Firestore } from "firebase-admin/firestore";
+import { Timestamp, type Firestore } from "firebase-admin/firestore";
 import {
   createCommunityModerationCallables,
   createCommunityModerationDeadlineSchedule,
+  moderationAlertDeadline,
 } from "./communityModeration";
 
 const indexSource = readFileSync(resolve(__dirname, "../src/index.ts"), "utf8");
@@ -45,4 +46,16 @@ test("index registers each recovered moderation function export", () => {
     indexSource,
     /export const checkCommunityModerationDeadlines = createCommunityModerationDeadlineSchedule\(db\);/,
   );
+});
+
+test("a deadline alert never carries an undefined deadline (legacy reports have none stored)", () => {
+  const derivedMs = Date.UTC(2026, 8, 18, 3, 0, 0);
+  const derived = moderationAlertDeadline(undefined, derivedMs);
+  assert.ok(derived instanceof Timestamp);
+  assert.equal(derived.toMillis(), derivedMs);
+
+  const stored = Timestamp.fromMillis(Date.UTC(2026, 8, 20));
+  assert.equal(moderationAlertDeadline(stored, derivedMs), stored);
+  // A non-timestamp leftover is not trusted either.
+  assert.equal(moderationAlertDeadline("2026-09-20", derivedMs).toMillis(), derivedMs);
 });

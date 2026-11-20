@@ -54,6 +54,7 @@ import {
   shouldSchedulePromiseReminderTransition,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
+import { isSingleDocumentId } from "./shared/docId";
 import {
   buildNotificationIdempotencyKey,
   createInAppNotification,
@@ -2353,7 +2354,12 @@ export const unlockDirectChat = onCall(withAppCheck(), async (request) => {
   const user = await resolveReviewCapableAppUser(request.auth);
   const data = getCallableData(request);
   const partnerId = asNonEmptyString(data.partnerId);
-  if (!partnerId || partnerId === user.userId || partnerId.length > 128) {
+  if (
+    !partnerId ||
+    partnerId === user.userId ||
+    partnerId.length > 128 ||
+    !isSingleDocumentId(partnerId)
+  ) {
     throw new HttpsError("invalid-argument", "채팅 상대 정보가 올바르지 않아요.");
   }
 
@@ -3704,6 +3710,9 @@ export const ensureEventTeamSetup = onCall(
   // Team setup/membership: Firebase canonical auth only (no Kakao fallback).
   const leader = await resolveAuthedAppUser(request.auth);
   let teamSetupId = asNonEmptyString(data.teamSetupId);
+  if (teamSetupId && !isSingleDocumentId(teamSetupId)) {
+    throw new HttpsError("invalid-argument", "팀 설정 정보가 올바르지 않아요.");
+  }
   if (!teamSetupId) {
     const existingTeam = await resolveEventTeamSetupForUser(leader.userId, null);
     if (existingTeam) {
@@ -3744,7 +3753,7 @@ export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const inviter = await resolveAuthedAppUser(request.auth);
   const teamSetupId = asNonEmptyString(data.teamSetupId);
   const inviteeUserId = asNonEmptyString(data.inviteeUserId);
-  if (!teamSetupId || !inviteeUserId) {
+  if (!isSingleDocumentId(teamSetupId) || !isSingleDocumentId(inviteeUserId)) {
     throw new HttpsError(
       "invalid-argument",
       "teamSetupId와 inviteeUserId가 필요해요."
@@ -5587,13 +5596,6 @@ export function readSafePhotoUrl(userData: Record<string, unknown>): string | nu
     return approvedAvatarUrl;
   }
   return null;
-}
-
-export function isUnregisteredPushTokenError(code: string | null): boolean {
-  return (
-    code === "messaging/registration-token-not-registered" ||
-    code === "messaging/invalid-registration-token"
-  );
 }
 
 export function verifiedYonseiEmailFromAuthToken(
