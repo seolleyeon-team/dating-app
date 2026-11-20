@@ -51,6 +51,9 @@ void main() {
       'lib/features/profile/screens/heart_charge_screen.dart',
     ).readAsStringSync();
 
-    expect(source, contains('? details.price'));
+    // 스토어가 준 localized price 를 그대로 쓴다. 클라이언트가 원화 금액을
+    // 직접 포맷해 보여 주는 경로가 다시 생기면 안 된다.
+    expect(source, contains('displayPrice: details.price'));
+    expect(source, isNot(contains('NumberFormat.currency')));
   });
 }

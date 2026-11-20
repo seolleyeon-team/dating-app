@@ -11,7 +11,7 @@
  * 그대로 실행한다. 클라이언트가 match/room을 seed하는 방식이 아니다.
  */
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { before, test } from "node:test";
 
 import { getFirestore } from "firebase-admin/firestore";
 
@@ -28,8 +28,24 @@ import {
   respondTeamMeetingRequest,
 } from "./index";
 import { seasonMeetingChatRoomId, SEASON_MEETING_EVENT_TYPE } from "./seasonMeetingChat";
+import {
+  CAMPUS_LIFE_ZONE_ENFORCED_FIELD,
+  RECOMMENDATION_CONFIG_COLLECTION,
+  RECOMMENDATION_CONFIG_DOC,
+} from "./campusLifeZoneActivation";
 
 const db = getFirestore();
+
+// 생활권 hard eligibility 는 rollout 플래그(recommendationConfig/current)가 켜져
+// 있을 때만 강제된다. 플래그 없이 돌리면 아래 생활권 E2E 는 "미적용" 경로를
+// 검증하게 된다. activation 은 프로세스 안에서 30초 캐시되므로, 어떤 spin 보다도
+// 먼저 켜 둔다.
+before(async () => {
+  await db
+    .collection(RECOMMENDATION_CONFIG_COLLECTION)
+    .doc(RECOMMENDATION_CONFIG_DOC)
+    .set({ [CAMPUS_LIFE_ZONE_ENFORCED_FIELD]: true }, { merge: true });
+});
 
 function kstCompactDateKey(): string {
   const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -47,6 +63,9 @@ function run(
   return fn.run({ data, auth: { uid }, rawRequest: {} } as never);
 }
 
+// 룰렛 1회는 20H 를 차감한다. 잔액 없는 fixture 는 spin 이 resource-exhausted 로
+// 끝나서, 생활권·잠금 복구 같은 본래 검증 대상에 도달하지 못한다.
+const SEEDED_HEART_BALANCE = 100;
 const TEAM_A = "spinTeamA";
 const TEAM_B = "spinTeamB";
 const A_UIDS = ["spin_a1", "spin_a2", "spin_a3"];
@@ -66,6 +85,7 @@ async function seedSpinWorld(): Promise<void> {
       name: uid,
       isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
+      heartBalance: SEEDED_HEART_BALANCE,
       onboarding: { campusLifeZones: ["sinchon"] },
     });
   }
@@ -177,6 +197,7 @@ test("E2E: spin recovers from a stale lock whose result doc is missing", async (
       name: uid,
       isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
+      heartBalance: SEEDED_HEART_BALANCE,
       onboarding: { campusLifeZones: ["sinchon"] },
     });
   }
@@ -255,6 +276,7 @@ test("E2E: a cross-zone team is never offered as a roulette candidate", async ()
         name: uid,
         isStudentVerified: true, adultVerified: true, realNameVerified: true,
         studentEmail: `${uid}@yonsei.ac.kr`,
+      heartBalance: SEEDED_HEART_BALANCE,
         onboarding: { campusLifeZones: zones },
       });
     }
@@ -338,6 +360,7 @@ test("E2E: a team without campus life zones cannot spin (fail-closed)", async ()
       name: uid,
       isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
+      heartBalance: SEEDED_HEART_BALANCE,
       onboarding: { grade: "1학년", department: "첨단융합공학부" },
     });
   }
@@ -346,6 +369,7 @@ test("E2E: a team without campus life zones cannot spin (fail-closed)", async ()
       name: uid,
       isStudentVerified: true, adultVerified: true, realNameVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
+      heartBalance: SEEDED_HEART_BALANCE,
       onboarding: { campusLifeZones: ["songdo"] },
     });
   }
