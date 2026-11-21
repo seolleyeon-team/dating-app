@@ -334,6 +334,15 @@ export function createCommunityModerationCallables(deps: Dependencies) {
   return { getCommunityModerationAccess, listCommunityModerationReports, setCommunityReportReviewing, decideCommunityReport, restoreCommunityAccount };
 }
 
+// The deadline stored on an alert. A legacy report has no `deadlineAt`; its
+// deadline is derived (createdAt + 24 h) a few lines below, but the alert used
+// to copy the raw field. Firestore refuses `undefined`, so one such pending
+// report threw inside the batch and every alert of that run was lost, again
+// on each 15-minute run while the report stayed overdue.
+export function moderationAlertDeadline(storedDeadlineAt: unknown, deadlineMs: number): Timestamp {
+  return storedDeadlineAt instanceof Timestamp ? storedDeadlineAt : Timestamp.fromMillis(deadlineMs);
+}
+
 // The schedule persists queue alerts for the admin app. It never makes an
 // automated moderation decision: reports remain human-reviewed.
 export function createCommunityModerationDeadlineSchedule(firestore: Firestore) {
@@ -353,7 +362,8 @@ export function createCommunityModerationDeadlineSchedule(firestore: Firestore) 
       if (level == null) continue;
       const alertRef = firestore.collection("moderation_alerts").doc(`${doc.id}_${level}_${level === "overdue" ? Math.floor(now / HOUR_MS) : "once"}`);
       batch.set(alertRef, {
-        reportId: doc.id, level, dataPartition: partition(data.dataPartition), deadlineAt: data.deadlineAt,
+        reportId: doc.id, level, dataPartition: partition(data.dataPartition),
+        deadlineAt: moderationAlertDeadline(data.deadlineAt, deadline),
         createdAt: FieldValue.serverTimestamp(), unread: true,
       }, { merge: true });
     }

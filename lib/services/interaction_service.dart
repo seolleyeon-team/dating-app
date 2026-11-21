@@ -159,10 +159,36 @@ class InteractionService {
         action: action,
       ),
     );
-    // Interactions are create-only under the rules; an existing document means
-    // this decision was already recorded (retry, double tap, re-opened card).
-    if ((await ref.get()).exists) return;
-    await ref.set(payload);
+    await writeCreateOnlyDecision(
+      create: () => ref.set(payload),
+      alreadyRecorded: () async => (await ref.get()).exists,
+    );
+  }
+
+  /// Records a one-shot decision under create-only rules.
+  ///
+  /// The write goes first. The rules cannot read a document that does not
+  /// exist yet (`resource.data` is null), so asking "already recorded?" before
+  /// the first write is refused and the like/nope would never be written. An
+  /// existing document is readable by its author, so only a refused create is
+  /// followed by that check: a repeat (retry, double tap, re-opened card)
+  /// resolves silently and every other refusal still surfaces.
+  static Future<void> writeCreateOnlyDecision({
+    required Future<void> Function() create,
+    required Future<bool> Function() alreadyRecorded,
+  }) async {
+    try {
+      await create();
+    } on FirebaseException catch (error) {
+      if (error.code != 'permission-denied') rethrow;
+      var recorded = false;
+      try {
+        recorded = await alreadyRecorded();
+      } on FirebaseException {
+        // Not readable means not recorded by this user: report the refusal.
+      }
+      if (!recorded) rethrow;
+    }
   }
 
   // ---------------------------------------------------------------------------

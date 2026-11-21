@@ -111,6 +111,36 @@ class BlindMeetingCancelResult {
   }
 }
 
+/// 후속 선택 제출을 서버가 예외가 아니라 값(`{ok: false, code}`)으로 거절했을 때.
+///
+/// 이 응답을 버리면 거절된 제출이 성공처럼 지나가고 화면의 선택만 사라진다.
+class BlindMeetingFollowUpRejectedException implements Exception {
+  const BlindMeetingFollowUpRejectedException(this.code);
+
+  /// 서버 코드: `not_open` / `window_closed` / `already_submitted`.
+  final String code;
+
+  /// `ok: true` 가 아니면 거절이다 (응답 형태를 알 수 없을 때도 성공으로 보지 않는다).
+  static BlindMeetingFollowUpRejectedException? fromResponse(
+    Map<String, dynamic> response,
+  ) {
+    if (response['ok'] == true) return null;
+    return BlindMeetingFollowUpRejectedException(
+      response['code']?.toString() ?? '',
+    );
+  }
+
+  String get message => switch (code) {
+    'not_open' => '아직 후속 선택이 열리지 않았어요. 잠시 후 다시 시도해주세요.',
+    'window_closed' => '후속 선택 기간이 끝났어요.',
+    'already_submitted' => '이미 선택을 제출했어요.',
+    _ => '선택을 제출하지 못했어요. 잠시 후 다시 시도해주세요.',
+  };
+
+  @override
+  String toString() => message;
+}
+
 /// 신청 취소가 이미 매칭된 뒤에 도착했을 때 (서버 deterministic 코드).
 ///
 /// 앱은 이 예외를 "취소 실패" 가 아니라 "매칭 결과로 복구" 로 처리한다.
@@ -776,10 +806,14 @@ class BlindMeetingRepository {
     required String meetingId,
     required List<String> selectedUids,
   }) async {
-    await _call('submitBlindMeetingFollowUpChoice', {
+    final response = await _call('submitBlindMeetingFollowUpChoice', {
       'meetingId': meetingId,
       'selectedUids': selectedUids,
     });
+    final rejected = BlindMeetingFollowUpRejectedException.fromResponse(
+      response,
+    );
+    if (rejected != null) throw rejected;
   }
 
   /// 상호 선택 결과 조회. 일방 선택 정보는 서버가 내려주지 않는다.

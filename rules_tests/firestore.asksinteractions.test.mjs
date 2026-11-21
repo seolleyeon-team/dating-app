@@ -14,7 +14,7 @@ import {
   withClearedDb,
 } from "./helpers.mjs";
 
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 const ALICE = "kakao_alice";
 const BOB = "kakao_bob";
@@ -118,6 +118,21 @@ test("interaction schema: action allowlist, source bound, metadata shape, spoofe
   await assertFails(setDoc(doc(alice, "interactions", "self"), like(ALICE, ALICE)));
   await assertFails(setDoc(doc(alice, "interactions", "old_time"), like(ALICE, BOB, { createdAt: new Date(2020, 1, 1) })));
   await assertFails(setDoc(doc(alice, "interactions", "extra"), like(ALICE, BOB, { nickname: "x" })));
+});
+
+// The read rule dereferences resource.data, so a get on an id that does not
+// exist yet is refused even for its would-be author. A client that asks
+// "already recorded?" before the first write therefore never gets to write:
+// it must create first and look only after a refused create.
+test("an interaction that does not exist yet is unreadable, so the client must create first and check afterwards", async () => {
+  await withClearedDb(seed);
+  const alice = await kakaoSession(ALICE);
+  const ref = doc(alice, "interactions", `${ALICE}_${BOB}_like`);
+  await assertFails(getDoc(ref));
+  await assertSucceeds(setDoc(ref, like(ALICE, BOB)));
+  await assertFails(setDoc(ref, like(ALICE, BOB)));
+  const recorded = await assertSucceeds(getDoc(ref));
+  assert.equal(recorded.exists(), true);
 });
 
 test("the deterministic client id for one-shot decisions is accepted, and a second write to it is refused (create-only)", async () => {

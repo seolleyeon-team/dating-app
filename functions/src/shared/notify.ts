@@ -15,7 +15,7 @@ import {
 } from "firebase-admin/messaging";
 import * as logger from "firebase-functions/logger";
 
-import { forgetToken, verifyTokenOwnership } from "../pushTokenOwnership";
+import { forgetToken, tokenFingerprint, verifyTokenOwnership } from "../pushTokenOwnership";
 
 /**
  * 기본 알림 채널 (소리 + 진동 + heads-up).
@@ -506,17 +506,18 @@ export async function sendPushToUsers(
     apns: buildApnsConfig(style, payload.collapseKey),
   });
 
-  const invalidTokens: string[] = [];
-  response.responses.forEach((r, i) => {
-    if (!r.success) {
-      const token = tokens[i];
-      if (token) invalidTokens.push(token);
-      logger.warn("Push send failed", {
-        token,
-        error: r.error?.message,
-      });
-    }
-  });
+  const failures = classifyPushSendFailures(tokens, response.responses);
+  for (const failure of failures) {
+    // The token itself is a delivery credential: log a fingerprint, never it.
+    logger.warn("Push send failed", {
+      tokenFingerprint: tokenFingerprint(failure.token).slice(0, 12),
+      errorCode: failure.errorCode,
+      tokenDropped: failure.permanent,
+    });
+  }
+  const invalidTokens = failures
+    .filter((failure) => failure.permanent)
+    .map((failure) => failure.token);
 
   if (invalidTokens.length > 0) {
     // P1-3: an invalid token is removed from every addressed registration
@@ -529,6 +530,42 @@ export async function sendPushToUsers(
       }
     }
   }
+}
+
+/**
+ * FCM error codes that mean the token itself is dead. Everything else
+ * (internal error, server unavailable, quota, an APNs credential problem) says
+ * nothing about the token: deleting the registration for those silenced the
+ * user's pushes until the app next re-registered, and an APNs key outage
+ * would have erased every iOS registration it touched.
+ */
+export function isUnregisteredPushTokenError(code: string | null | undefined): boolean {
+  return (
+    code === "messaging/registration-token-not-registered" ||
+    code === "messaging/invalid-registration-token"
+  );
+}
+
+export interface PushSendFailure {
+  token: string;
+  errorCode: string | null;
+  /** true only when the token is permanently unusable and must be forgotten. */
+  permanent: boolean;
+}
+
+/** Pairs each failed multicast response with its token (same index order). */
+export function classifyPushSendFailures(
+  tokens: readonly string[],
+  responses: readonly { success: boolean; error?: { code?: string } }[]
+): PushSendFailure[] {
+  const failures: PushSendFailure[] = [];
+  responses.forEach((response, index) => {
+    const token = tokens[index];
+    if (response.success || !token) return;
+    const errorCode = response.error?.code ?? null;
+    failures.push({ token, errorCode, permanent: isUnregisteredPushTokenError(errorCode) });
+  });
+  return failures;
 }
 
 /**

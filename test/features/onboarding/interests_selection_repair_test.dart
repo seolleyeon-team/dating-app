@@ -87,11 +87,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // find.text 는 검색창의 EditableText 도 함께 잡는다. 결과 칩(Text)만 본다.
+      final wineChip = find.byWidgetPredicate(
+        (widget) => widget is Text && widget.data == '와인',
+      );
       expect(find.text('음식'), findsOneWidget);
-      expect(find.text('와인'), findsOneWidget);
+      expect(wineChip, findsOneWidget);
       expect(find.text('넷플릭스'), findsNothing);
 
-      await tester.tap(find.text('와인'));
+      await tester.tap(wineChip);
       await tester.pumpAndSettle();
 
       final button = tester.widget<CupertinoButton>(

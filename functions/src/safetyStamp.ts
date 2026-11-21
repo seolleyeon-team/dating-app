@@ -25,6 +25,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
 import { withAppCheck } from "./appCheckPolicy";
+import { isSingleDocumentId } from "./shared/docId";
 
 /**
  * 안전도장 callable 실행 옵션.
@@ -166,7 +167,7 @@ export const submitSafetyStamp = onCall(
     // 내용을 신뢰하지 않고, 호출자 본인 키 아래에만 그대로 보관한다.
     const verification = isRecord(data.verification) ? data.verification : null;
 
-    if (roomId.length === 0 || promiseId.length === 0 || phase == null) {
+    if (!isSingleDocumentId(roomId) || !isSingleDocumentId(promiseId) || phase == null) {
       throw new HttpsError("invalid-argument", "요청 정보가 올바르지 않아요.");
     }
 

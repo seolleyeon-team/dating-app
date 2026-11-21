@@ -283,13 +283,27 @@ const OPS_HANDLERS: Record<string, OpsHandler> = {
 
 export const BLIND_MEETING_OPS_ACTIONS = Object.keys(OPS_HANDLERS);
 
+/**
+ * action 이름을 운영 handler 로 해석한다. 자체 속성만 인정한다.
+ *
+ * `OPS_HANDLERS[action]` 을 그대로 쓰면 `toString` / `constructor` 같은
+ * prototype 속성이 truthy 로 조회되어, requireAdmin 을 가진 handler 가 아닌
+ * 함수가 관리자 확인 없이 실행된다 (blindMeetingAction 의
+ * resolveBlindMeetingHandler 와 같은 문제, 같은 해법).
+ */
+export function resolveBlindMeetingOpsHandler(action: string): OpsHandler | null {
+  if (!Object.prototype.hasOwnProperty.call(OPS_HANDLERS, action)) return null;
+  const handler = OPS_HANDLERS[action];
+  return typeof handler === "function" ? handler : null;
+}
+
 export const blindMeetingOps = onCall(
   BLIND_MEETING_CALLABLE_OPTIONS,
   async (request) => {
     const data = getData(request);
     const action = asStr(data.action, "");
-    const handler = OPS_HANDLERS[action];
-    if (!handler) {
+    const handler = resolveBlindMeetingOpsHandler(action);
+    if (handler == null) {
       throw new HttpsError("invalid-argument", "지원하지 않는 운영 요청이에요.");
     }
     logger.info("blindMeetingOps", { action });

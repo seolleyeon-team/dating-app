@@ -6,6 +6,7 @@ import '../../../services/event_team_service.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/error_text.dart';
 import '../../profile/widgets/friends_list_shared.dart';
 
 /// 이벤트 등에서 친구를 여러 명 선택해 요청을 보낼 때 쓰는 화면 (친구 목록 변형)
@@ -113,11 +114,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final msg = e
-            .toString()
-            .replaceFirst('Exception: ', '')
-            .replaceFirst('StateError: ', '');
-        _briefAlert(msg);
+        _briefAlert(userFacingErrorText(e));
       }
     } finally {
       if (mounted) setState(() => _isSending = false);

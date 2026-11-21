@@ -82,19 +82,40 @@ class OnboardingSaveHelper {
     required String? exercise,
     required String? religion,
   }) async {
+    final lifestyle = selectedLifestyleFields(
+      drinking: drinking,
+      smoking: smoking,
+      exercise: exercise,
+      religion: religion,
+    );
+    if (lifestyle.isEmpty) return;
     final uid = await _getUserId();
     if (uid == null) return;
     await _userService.saveOnboardingBasicInfo(
       kakaoUserId: uid,
-      basicInfo: {
-        'lifestyle': {
-          'drinking': drinking,
-          'smoking': smoking,
-          'exercise': exercise,
-          'religion': religion,
-        },
-      },
+      basicInfo: {'lifestyle': lifestyle},
     );
+  }
+
+  /// 선택된 항목만 담는다. 선택하지 않은 항목은 쓰지 않는다.
+  ///
+  /// 라이프스타일 화면에서는 한 번 고른 값을 비울 수 없으므로 null 은 "지움"이
+  /// 아니라 "이번에 고르지 않음"이다. 그것을 그대로 저장하면, 화면이 기존 값을
+  /// 복원하지 않은 채(로드 전, 또는 예전 자동 기본값 조합이라 다시 고르게 한
+  /// 경우) 뒤로/다음을 누르는 것만으로 저장돼 있던 음주·흡연 값이 null 로
+  /// 덮인다. 그 두 값이 없으면 블라인드 미팅 신청이 서버에서 거부된다.
+  static Map<String, String> selectedLifestyleFields({
+    required String? drinking,
+    required String? smoking,
+    required String? exercise,
+    required String? religion,
+  }) {
+    return {
+      if (drinking != null && drinking.isNotEmpty) 'drinking': drinking,
+      if (smoking != null && smoking.isNotEmpty) 'smoking': smoking,
+      if (exercise != null && exercise.isNotEmpty) 'exercise': exercise,
+      if (religion != null && religion.isNotEmpty) 'religion': religion,
+    };
   }
 
   /// Step 4: 전공 계열

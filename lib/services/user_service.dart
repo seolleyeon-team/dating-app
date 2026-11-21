@@ -192,9 +192,21 @@ class UserService {
     return getPublicProfile(kakaoUserId);
   }
 
+  /// Returns null when the profile is not available to the caller.
+  ///
+  /// The rules decide from the stored document, so a profile that does not
+  /// exist (suspended / withdrawn / operations accounts have theirs removed)
+  /// is answered with `permission-denied`, not with an empty snapshot. Callers
+  /// hydrate lists one profile at a time and already treat null as "no
+  /// profile"; letting that refusal escape blanked the whole list.
   Future<Map<String, dynamic>?> getPublicProfile(String uid) async {
-    final doc = await _firestore.collection('publicProfiles').doc(uid).get();
-    return doc.data();
+    try {
+      final doc = await _firestore.collection('publicProfiles').doc(uid).get();
+      return doc.data();
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') return null;
+      rethrow;
+    }
   }
 
   Future<void> savePrivacySettings({

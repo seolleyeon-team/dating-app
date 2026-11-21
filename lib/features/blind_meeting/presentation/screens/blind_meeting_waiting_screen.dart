@@ -99,8 +99,8 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
   void _openMeeting(String meetingId) {
     if (_leaving) return;
     _leaving = true;
-    Navigator.of(context).pushReplacementNamed(
-      RouteNames.blindTasteMeetingResult,
+    pushBlindMeetingResultAndClearTransientStack(
+      context,
       arguments: BlindMeetingMeetingArgs(
         meetingId: meetingId,
         showRecommendationBanner: true,

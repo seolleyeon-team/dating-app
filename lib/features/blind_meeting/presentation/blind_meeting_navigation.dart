@@ -18,6 +18,22 @@ void pushBlindMeetingWaitingAndClearTransientStack(BuildContext context) {
   );
 }
 
+/// Shows the matched meeting and clears Waiting plus anything stacked on it.
+///
+/// Waiting keeps listening while another route (DNA edit, a sheet) covers it.
+/// `pushReplacementNamed` would replace that covering route instead and leave
+/// a Waiting screen underneath that can no longer be exited.
+void pushBlindMeetingResultAndClearTransientStack(
+  BuildContext context, {
+  required Object arguments,
+}) {
+  Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
+    RouteNames.blindTasteMeetingResult,
+    _isBlindMeetingFlowAnchor,
+    arguments: arguments,
+  );
+}
+
 /// Returns to an existing Intro route when possible, otherwise creates one.
 ///
 /// A direct/deep-linked Waiting route may be the first route, so replacing it

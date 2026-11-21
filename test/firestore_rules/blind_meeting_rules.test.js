@@ -493,8 +493,17 @@ describe("후속 선택", () => {
 });
 
 describe("단체 채팅", () => {
-  it("확정 참가자는 메시지를 보낼 수 있다", async () => {
-    await assertSucceeds(
+  // P1-2: text 메시지는 sendChatText callable 만 만든다. 성인·실명 인증을 마친
+  // 확정 참가자라도 클라이언트에서 직접 쓰는 text 는 거부되어야 한다.
+  it("확정 참가자도 text 메시지를 직접 만들 수 없다 (sendChatText 전용)", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(
+        doc(ctx.firestore(), "users", A1),
+        { adultVerified: true, realNameVerified: true },
+        { merge: true }
+      );
+    });
+    await assertFails(
       addDoc(
         collection(authed(A1), "chat_rooms", `blind_${MEETING_ID}`, "messages"),
         { senderId: A1, text: "안녕하세요", type: "text" }

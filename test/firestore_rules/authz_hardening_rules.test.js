@@ -577,11 +577,27 @@ describe("chat_rooms / messages", () => {
     );
   });
 
-  it("참가자는 자기 이름으로 메시지를 보낼 수 있다", async () => {
-    await assertSucceeds(
+  // P1-2: text 메시지는 sendChatText callable 만 만든다. 성인·실명 인증을 마친
+  // 참가자가 자기 이름으로 보내더라도 클라이언트 직접 쓰기는 거부되어야 한다.
+  it("참가자도 text 메시지를 직접 만들 수 없다 (sendChatText 전용)", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(
+        doc(ctx.firestore(), "users", VICTIM),
+        { adultVerified: true, realNameVerified: true },
+        { merge: true }
+      );
+    });
+    await assertFails(
       setDoc(doc(as(VICTIM), "chat_rooms", ROOM, "messages", "own"), {
         senderId: VICTIM,
         text: "안녕",
+      })
+    );
+    await assertFails(
+      setDoc(doc(as(VICTIM), "chat_rooms", ROOM, "messages", "own-typed"), {
+        senderId: VICTIM,
+        text: "안녕",
+        type: "text",
       })
     );
   });
@@ -773,14 +789,48 @@ describe("asks / interactions / bamboo_posts", () => {
     );
   });
 
-  it("본인 이름의 무물은 허용한다", async () => {
+  // 무물 발신 계약(P1-7 성인 인증, P1-10 차단)을 한 가지씩 고정한다. 공통 fixture 는
+  // VICTIM 이 ATTACKER 를 차단해 둔 상태이므로, 허용 케이스는 차단 관계가 없는
+  // 수신자에게 보낸다.
+  const ASK_RECIPIENT = "ask-recipient-0001";
+  const seedAskParties = async ({ senderVerified }) => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "users", ASK_RECIPIENT), { nickname: "수신자" });
+      if (senderVerified) {
+        await setDoc(
+          doc(db, "users", ATTACKER),
+          { adultVerified: true, realNameVerified: true },
+          { merge: true }
+        );
+      }
+    });
+  };
+  const ownAsk = (toUserId) => ({
+    fromUserId: ATTACKER,
+    toUserId,
+    text: "질문",
+    status: "sent",
+  });
+
+  it("성인 인증이 없는 계정의 무물은 거부한다", async () => {
+    await seedAskParties({ senderVerified: false });
+    await assertFails(
+      setDoc(doc(as(ATTACKER), "asks", "a-unverified"), ownAsk(ASK_RECIPIENT))
+    );
+  });
+
+  it("차단 관계가 있는 상대에게는 무물을 보낼 수 없다", async () => {
+    await seedAskParties({ senderVerified: true });
+    await assertFails(
+      setDoc(doc(as(ATTACKER), "asks", "a-blocked"), ownAsk(VICTIM))
+    );
+  });
+
+  it("성인 인증을 마친 본인 이름의 무물은 허용한다", async () => {
+    await seedAskParties({ senderVerified: true });
     await assertSucceeds(
-      setDoc(doc(as(ATTACKER), "asks", "a-own"), {
-        fromUserId: ATTACKER,
-        toUserId: VICTIM,
-        text: "질문",
-        status: "sent",
-      })
+      setDoc(doc(as(ATTACKER), "asks", "a-own"), ownAsk(ASK_RECIPIENT))
     );
   });
 

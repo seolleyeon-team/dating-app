@@ -17,6 +17,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 
 // 3:3 시즌 미팅 방 = 6인. 안전도장 위조는 6명 uid 를 한 번에 박는 공격이다.
@@ -374,6 +375,69 @@ test("the recipient CAN edit the promise, which swaps requestedBy/requestedTo", 
       updatedAt: new Date(),
     })
   );
+});
+
+// chat_service.dart:updatePromise 는 약속 문서와 카드 메시지를 한 트랜잭션으로
+// 고친다. 약속 문서 쪽은 수신자의 수정(제안자 swap)을 허용하지만 카드 메시지의
+// senderId 는 바꿀 수 없다. 즉 수신자의 "약속 수정" 전체 트랜잭션은 현재 규칙에서
+// 성립하지 않는다 — 클라이언트는 그 버튼을 제안자에게만 활성화한다
+// (chat_room_screen.dart). 수신자 수정을 열려면 이 규칙과 그 버튼을 함께 바꿔야 한다.
+function promiseEditBatch(db, editor, counterpart) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, "chat_rooms", ROOM, "promises", PROMISE), {
+    requestedBy: editor,
+    requestedTo: counterpart,
+    dateTime: new Date("2026-09-11T12:00:00Z"),
+    place: "홍대",
+    placeCategory: "restaurant",
+    status: "requested",
+    acceptedAt: null,
+    isEdited: true,
+    editedAt: new Date(),
+    updatedAt: new Date(),
+  });
+  batch.update(doc(db, "chat_rooms", ROOM, "messages", "msg_1"), {
+    senderId: editor,
+    type: "promise_request",
+    text: "약속 요청",
+    dateTime: new Date("2026-09-11T12:00:00Z"),
+    place: "홍대",
+    placeCategory: "restaurant",
+    status: "requested",
+    isEdited: true,
+    editedAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return batch.commit();
+}
+
+async function seedPromiseCard(db) {
+  await seedRooms(db);
+  await setDoc(doc(db, "chat_rooms", ROOM, "messages", "msg_1"), {
+    senderId: A,
+    type: "promise_request",
+    text: "약속 요청",
+    promiseId: PROMISE,
+    dateTime: new Date("2026-09-10T12:00:00Z"),
+    place: "신촌",
+    placeCategory: "cafe",
+    status: "requested",
+    createdAt: new Date("2026-09-01T00:00:00Z"),
+  });
+}
+
+test("the proposer's edit transaction (promise + its card message) is accepted", async () => {
+  await withClearedDb(seedPromiseCard);
+  const a = await kakaoSession(A);
+  await assertSucceeds(promiseEditBatch(a, A, B));
+});
+
+test("the recipient's edit transaction is refused as a whole: the card's senderId cannot change", async () => {
+  await withClearedDb(seedPromiseCard);
+  const b = await kakaoSession(B);
+  await assertFails(promiseEditBatch(b, B, A));
+  const card = await getDoc(doc(b, "chat_rooms", ROOM, "messages", "msg_1"));
+  assert.equal(card.data().senderId, A);
 });
 
 // ---------------------------------------------------------------------------

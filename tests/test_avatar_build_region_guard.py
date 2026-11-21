@@ -13,7 +13,10 @@ a stale copy cannot reintroduce a Seoul destination for the avatar worker.
 from __future__ import annotations
 
 import re
+from fnmatch import fnmatch
 from pathlib import Path
+
+from repo_source_files import repository_files
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,7 +38,10 @@ AVATAR_WORKER_IMAGE = re.compile(
 
 
 def _tracked_cloudbuild_configs() -> list[Path]:
-    return sorted(REPO_ROOT.glob("**/cloudbuild*.yaml"))
+    files = repository_files(REPO_ROOT)
+    if files is None:
+        return sorted(REPO_ROOT.glob("**/cloudbuild*.yaml"))
+    return [path for path in files if fnmatch(path.name, "cloudbuild*.yaml")]
 
 
 def _avatar_worker_destinations() -> list[tuple[Path, re.Match[str]]]:

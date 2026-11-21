@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { MATCHING_STAGES, oneOfOrNull } from "./types";
+
 import {
   buildBlindMeetingApplicationEditPatch,
   canEditBlindMeetingApplication,
@@ -158,4 +160,28 @@ test("non-editable application has no update patch", () => {
     ),
     null
   );
+});
+
+test("every stage the edit policy accepts survives the stored-stage parser", () => {
+  // The edit transaction parses the stored stage before it asks this policy.
+  // When that parser kept its own stage list, the two party-waiting stages were
+  // missing from it and every edit in those stages was refused before the
+  // policy (which allows them) was consulted.
+  for (const stage of MATCHING_STAGES) {
+    const editable = canEditBlindMeetingApplication({
+      status: "applied",
+      stage,
+      open: true,
+      meetingId: null,
+    });
+    if (!editable) continue;
+    assert.equal(oneOfOrNull(MATCHING_STAGES, stage), stage);
+  }
+  for (const stage of ["waitingForPartyMembers", "waitingForCommonDates"] as const) {
+    assert.equal(oneOfOrNull(MATCHING_STAGES, stage), stage);
+    assert.equal(
+      canEditBlindMeetingApplication({ status: "applied", stage, open: false, meetingId: null }),
+      true
+    );
+  }
 });

@@ -20,6 +20,7 @@ import '../../../services/friend_invite_service.dart';
 import '../../../services/kakao_talk_friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/error_text.dart';
 
 class _AppColors {
   static const Color primary = Color(0xFFF0426E);
@@ -156,9 +157,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       }
       return _firebaseFunctionsCodeHint(e.code);
     }
-    if (e is StateError) return e.message;
-    final s = e.toString();
-    return s.replaceFirst('Exception: ', '').replaceFirst('StateError: ', '');
+    return userFacingErrorText(e);
   }
 
   String _firebaseFunctionsCodeHint(String code) {

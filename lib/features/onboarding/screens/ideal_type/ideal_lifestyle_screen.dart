@@ -16,6 +16,8 @@ import '../../../../constants/profile_options.dart';
 import '../../../../router/route_names.dart';
 import '../../../../services/onboarding_save_helper.dart';
 import '../../../../services/storage_service.dart';
+import '../../../../shared/utils/safe_catch.dart';
+import '../../widgets/onboarding_save_failure.dart';
 import '../../../../services/user_service.dart';
 
 // =============================================================================
@@ -162,7 +164,16 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
     if (_isSkipping) return;
     HapticFeedback.lightImpact();
     setState(() => _isSkipping = true);
-    await OnboardingSaveHelper.skipIdealType();
+    try {
+      await OnboardingSaveHelper.skipIdealType();
+    } catch (error, stackTrace) {
+      logCaughtError('IdealTypeSkip', error, stackTrace);
+      if (!mounted) return;
+      // 실패해도 버튼은 다시 눌려야 한다.
+      setState(() => _isSkipping = false);
+      await showOnboardingSaveFailure(context);
+      return;
+    }
     if (!mounted) return;
     // 온보딩 완료는 아바타 선택(마지막) 화면이 승인 뒤에 기록한다.
     setState(() => _isSkipping = false);

@@ -54,6 +54,7 @@ import {
   MEETING_BOUND_APPLICATION_STATUSES,
   MEETING_PURPOSES,
   MEETING_STATUS_TO_APP,
+  MATCHING_STAGES,
   MatchingStage,
   PARTICIPANT_STATUS_TO_APP,
   ParticipantStatus,
@@ -193,17 +194,7 @@ export function readApplicationDoc(
       "applied"
     ),
     stage: oneOf(
-      [
-        "waitingForPartyMembers",
-        "waitingForCommonDates",
-        "searchingCandidates",
-        "formingOwnTeam",
-        "checkingCrossTeam",
-        "awaitingConfirmation",
-        "matched",
-        "insufficientCandidates",
-        "cancelled",
-      ] as MatchingStage[],
+      MATCHING_STAGES,
       raw.stage,
       "searchingCandidates"
     ),
@@ -1121,23 +1112,28 @@ export async function startPaidBlindMeetingDna(userId: string): Promise<{
       existingApplication.dnaApplicationCompleted === true &&
       existingApplicationStatus != null &&
       ACTIVE_APPLICATION_STATUSES.includes(existingApplicationStatus);
+    // 살아 있는 최종 신청이 이미 있다 (미팅에 묶였거나, 파티원을 기다리는 중).
+    // 신청서는 사용자당 하나라 여기서 새 DNA 를 시작할 수 없는데, 위의 open
+    // 검사는 그 둘을 걸러내지 못한다 (둘 다 open 이 아니다). 그대로 내려가면
+    // 호출할 때마다 새 spend id 로 30H 가 다시 차감되고, 이어지는 최종 신청은
+    // 거부되므로 돌려받을 경로도 없다. 차감 전에 거부한다. DNA·날짜 수정은
+    // 차감 없는 수정 경로(updatePaidBlindMeetingApplication)를 쓴다.
+    if (applicationCompleted) {
+      throw new HttpsError(
+        "failed-precondition",
+        "이미 진행 중인 블라인드 미팅 신청이 있어요."
+      );
+    }
     if (
       draftSnap.exists &&
       existingDraftStatus === "in_progress" &&
-      existingDraftChargeCount > 0 &&
-      !applicationCompleted
+      existingDraftChargeCount > 0
     ) {
       return {
         charged: false,
         heartBalance: heartBalanceFromSnapshot(userSnap),
         heartChargeCount: existingDraftChargeCount,
       };
-    }
-
-    // 최종 신청과 초안 삭제가 분리된 legacy/복구 데이터가 남아 있어도
-    // 완료된 신청의 초안을 이어쓰기 상태로 노출하지 않는다.
-    if (applicationCompleted && draftSnap.exists) {
-      tx.delete(draftRef);
     }
 
     const previousApplicationChargeCount = Math.max(
@@ -1868,18 +1864,7 @@ export async function updateApplicationForDnaEdit(params: {
       ] as ParticipantStatus[],
       normalizeLegacyParticipantStatus(asStr(raw.serverStatus ?? raw.status, ""))
     );
-    const stage = oneOfOrNull(
-      [
-        "searchingCandidates",
-        "formingOwnTeam",
-        "checkingCrossTeam",
-        "awaitingConfirmation",
-        "matched",
-        "insufficientCandidates",
-        "cancelled",
-      ] as MatchingStage[],
-      raw.stage
-    );
+    const stage = oneOfOrNull(MATCHING_STAGES, raw.stage);
     if (status == null || stage == null) {
       throw new HttpsError(
         "failed-precondition",

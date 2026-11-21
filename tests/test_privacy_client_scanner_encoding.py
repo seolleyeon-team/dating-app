@@ -22,6 +22,7 @@ from privacy_client_scanner import (  # noqa: E402
     decode_client_source,
     scan_client_files,
 )
+from repo_source_files import repository_files  # noqa: E402
 
 LEAKY_SOURCE = (
     "class Leak {\n"
@@ -106,10 +107,15 @@ SKIPPED_DIRECTORY_NAMES = {
 def test_no_tracked_source_file_uses_a_wide_encoding():
     """UTF-16 소스는 grep 기반 도구 전체를 조용히 무력화한다."""
     offenders = []
-    for path in REPO_ROOT.rglob("*"):
+    # git 이 아는 파일만 본다. 작업 트리를 그대로 걸으면 무시된 로컬 산출물
+    # (.tmp/ 의 복원 스냅샷 등)까지 읽어서 clean checkout 과 결과가 갈린다.
+    candidates = repository_files(REPO_ROOT)
+    if candidates is None:
+        candidates = [path for path in REPO_ROOT.rglob("*") if path.is_file()]
+    for path in candidates:
         if any(part in SKIPPED_DIRECTORY_NAMES for part in path.parts):
             continue
-        if not path.is_file() or path.suffix.lower() not in TRACKED_SOURCE_SUFFIXES:
+        if path.suffix.lower() not in TRACKED_SOURCE_SUFFIXES:
             continue
         if path.read_bytes()[:2] in (b"\xff\xfe", b"\xfe\xff"):
             offenders.append(str(path.relative_to(REPO_ROOT)))

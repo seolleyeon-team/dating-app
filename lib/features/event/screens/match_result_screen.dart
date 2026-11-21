@@ -8,6 +8,7 @@ import '../../../data/models/event/team_meeting_request_model.dart';
 import '../../../router/route_names.dart';
 import '../../../services/event_match_service.dart';
 import '../../../services/team_meeting_request_service.dart';
+import '../../../shared/utils/error_text.dart';
 import '../models/event_team_route_args.dart';
 
 class MatchResultScreen extends StatefulWidget {
@@ -121,7 +122,7 @@ class _MatchResultScreenState extends State<MatchResultScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showAlert(e.toString().replaceFirst('StateError: ', ''));
+      _showAlert(userFacingErrorText(e));
     } finally {
       if (mounted) setState(() => _actionInProgress = false);
     }
@@ -143,7 +144,7 @@ class _MatchResultScreenState extends State<MatchResultScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showAlert(e.toString().replaceFirst('StateError: ', ''));
+      _showAlert(userFacingErrorText(e));
     } finally {
       if (mounted) setState(() => _actionInProgress = false);
     }
@@ -184,7 +185,7 @@ class _MatchResultScreenState extends State<MatchResultScreen> {
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      _showAlert(e.toString().replaceFirst('StateError: ', ''));
+      _showAlert(userFacingErrorText(e));
     } finally {
       if (mounted) setState(() => _actionInProgress = false);
     }

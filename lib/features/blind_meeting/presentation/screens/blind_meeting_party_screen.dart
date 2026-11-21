@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../router/route_names.dart';
+import '../../../../shared/utils/error_text.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
 import '../../domain/blind_meeting_party.dart';
@@ -71,10 +72,14 @@ class _BlindMeetingPartyScreenState extends State<BlindMeetingPartyScreen> {
             ],
           ),
         );
-        await _repository.respondPartyInvite(
-          inviteId: pendingInvites.first.inviteId,
-          accept: accepted == true,
-        );
+        // 시스템 뒤로 가기로 닫힌 경우(null)는 답하지 않은 것이다. 거절로
+        // 처리하면 초대가 사용자 의사와 무관하게 사라진다.
+        if (accepted != null) {
+          await _repository.respondPartyInvite(
+            inviteId: pendingInvites.first.inviteId,
+            accept: accepted,
+          );
+        }
       }
 
       final current = await _repository.loadCurrentParty();
@@ -90,10 +95,7 @@ class _BlindMeetingPartyScreenState extends State<BlindMeetingPartyScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error
-            .toString()
-            .replaceFirst('StateError: ', '')
-            .replaceFirst('Exception: ', '');
+        _error = userFacingErrorText(error);
       });
     }
   }

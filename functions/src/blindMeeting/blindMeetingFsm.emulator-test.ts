@@ -39,6 +39,7 @@ import {
 import {
   cancelMeeting,
   settleCancellation,
+  submitFollowUpChoice,
   voteFivePersonException,
 } from "./orchestrator";
 import { cancelBlindMeetingParty } from "./party";
@@ -857,6 +858,8 @@ test("five-person vote: a finalized no_show cannot veto the remaining participan
     uniqueId("u"), uniqueId("u"), uniqueId("u"),
   ];
   await seedMeeting(meetingId, "checkin_open", seats);
+  // 서버가 결원을 확정해 투표를 연 상태.
+  await db.collection("blindMeetings").doc(meetingId).update({ fivePersonVoteOpen: true });
   for (const uid of seats.slice(0, 5)) {
     await seedParticipant(meetingId, uid, "confirmed");
   }
@@ -882,6 +885,82 @@ test("five-person vote: a finalized no_show cannot veto the remaining participan
     .collection("blindMeetings").doc(meetingId)
     .collection("fivePersonVotes").get();
   assert.equal(after.size, 1, "정상 참가자 투표는 기록된다");
+});
+
+test("five-person vote: without an open vote nobody can cancel the meeting with one `agree: false`", async () => {
+  // 결원이 없는 정상 미팅. 투표가 열린 적이 없는데 거부표를 받으면
+  // 참가자 한 명이 언제든 미팅 전체를 취소시킬 수 있다.
+  const meetingId = uniqueId("m_novote");
+  const seats = Array.from({ length: 6 }, () => uniqueId("u"));
+  await seedMeeting(meetingId, "chat_open", seats);
+  for (const uid of seats) await seedParticipant(meetingId, uid, "confirmed");
+
+  await assert.rejects(
+    () => voteFivePersonException({ meetingId, userId: seats[0], agree: false }),
+    (error: unknown) => (error as { code?: string }).code === "failed-precondition"
+  );
+
+  const votes = await db
+    .collection("blindMeetings").doc(meetingId)
+    .collection("fivePersonVotes").get();
+  assert.equal(votes.size, 0, "열리지 않은 투표의 표는 기록되지 않는다");
+  const meeting = await db.collection("blindMeetings").doc(meetingId).get();
+  assert.equal(meeting.data()?.serverStatus, "chat_open", "미팅이 취소되면 안 된다");
+});
+
+test("five-person vote: a vote left open cannot cancel a meeting that already took place", async () => {
+  const meetingId = uniqueId("m_latevote");
+  const seats = Array.from({ length: 6 }, () => uniqueId("u"));
+  await seedMeeting(meetingId, "completed", seats);
+  await db.collection("blindMeetings").doc(meetingId).update({ fivePersonVoteOpen: true });
+  for (const uid of seats.slice(0, 5)) await seedParticipant(meetingId, uid, "attended");
+
+  await assert.rejects(
+    () => voteFivePersonException({ meetingId, userId: seats[0], agree: false }),
+    (error: unknown) => (error as { code?: string }).code === "failed-precondition"
+  );
+  const meeting = await db.collection("blindMeetings").doc(meetingId).get();
+  assert.equal(meeting.data()?.serverStatus, "completed");
+});
+
+test("follow-up: a mutual match left without its chat room is finished by the retry", async () => {
+  // 서로 선택한 두 사람. 두 번째 제출이 선택과 mutualMatches 문서까지 commit 한 뒤
+  // 1:1 방을 만들기 전에 실패한 상태를 재현한다 (chatRoomId 없음).
+  const meetingId = uniqueId("m_followup");
+  const seats = Array.from({ length: 6 }, () => uniqueId("u"));
+  const [a, b] = [seats[0], seats[3]];
+  await seedMeeting(meetingId, "followup_open", seats);
+  for (const uid of seats) {
+    await seedParticipant(meetingId, uid, "attended", { checkInStatus: "completed" });
+  }
+  const meetingRef = db.collection("blindMeetings").doc(meetingId);
+  for (const [chooser, selected] of [[a, b], [b, a]]) {
+    await meetingRef.collection("followUpChoices").doc(chooser).set({
+      meetingId,
+      chooserUid: chooser,
+      selectedUids: [selected],
+      submittedAt: FieldValue.serverTimestamp(),
+    });
+  }
+  const pair = [a, b].sort();
+  const matchRef = meetingRef.collection("mutualMatches").doc(`${pair[0]}|${pair[1]}`);
+  await matchRef.set({ meetingId, userIds: pair, matchedAt: FieldValue.serverTimestamp() });
+  const roomRef = db.collection("chat_rooms").doc(`dm_${pair[0]}_${pair[1]}`);
+  assert.equal((await roomRef.get()).exists, false);
+
+  // 재시도. 요청 payload 가 아니라 저장된 선택으로 마저 처리한다.
+  const retried = await submitFollowUpChoice({ meetingId, userId: b, selectedUids: [] });
+  assert.deepEqual(retried, { ok: false, code: "already_submitted" });
+
+  const room = await roomRef.get();
+  assert.equal(room.exists, true, "서로 선택한 두 사람의 1:1 방이 만들어져야 한다");
+  assert.deepEqual(room.data()?.participantIds, pair);
+  assert.equal((await matchRef.get()).data()?.chatRoomId, roomRef.id);
+
+  // 완료된 쌍은 다시 건드리지 않는다.
+  const createdAt = room.data()?.createdAt;
+  await submitFollowUpChoice({ meetingId, userId: a, selectedUids: [b] });
+  assert.deepEqual((await roomRef.get()).data()?.createdAt, createdAt);
 });
 
 // -----------------------------------------------------------------------------
@@ -1327,6 +1406,42 @@ test("cancel → DNA start twice charges once (stale dnaApplicationCompleted is 
   assert.equal(second.charged, false);
   assert.equal(second.heartChargeCount, 2);
   assert.equal(await heartBalance(uid), 100 - BLIND_MEETING_HEART_COST, "charged exactly once");
+});
+
+test("paid DNA start refuses, without charging, while a completed application is still alive", async () => {
+  // 미팅에 묶인 신청 / 파티원을 기다리는 신청은 둘 다 open 이 아니다. open 만
+  // 확인하던 시절에는 이 상태에서 호출할 때마다 30H 가 새로 차감됐다.
+  const cases: Array<[ParticipantStatus, Record<string, unknown>]> = [
+    ["confirmed", { open: false, meetingId: uniqueId("m_bound") }],
+    ["applied", { open: false, meetingId: null, stage: "waitingForPartyMembers" }],
+  ];
+  for (const [status, extra] of cases) {
+    const uid = uniqueId("u_alive");
+    await db.collection("users").doc(uid).set({
+      heartBalance: 100,
+      isStudentVerified: true, adultVerified: true, realNameVerified: true,
+      onboarding: { lifestyle: { drinking: "sometimes", smoking: "nonSmoker" } },
+    });
+    await seedApplication(uid, status, {
+      ...extra,
+      heartCost: BLIND_MEETING_HEART_COST,
+      heartChargeCount: 1,
+      dnaApplicationCompleted: true,
+    });
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await assert.rejects(
+        () => startPaidBlindMeetingDna(uid),
+        (error: unknown) => (error as { code?: string }).code === "failed-precondition",
+        `${status} attempt ${attempt}`
+      );
+    }
+    assert.equal(await heartBalance(uid), 100, `${status}: 하트가 줄면 안 된다`);
+    assert.equal(
+      (await db.collection("heartTransactions").doc(blindMeetingHeartSpendId(uid, 2)).get()).exists,
+      false
+    );
+  }
 });
 
 test("re-apply clears stale refund/cancel fields on the application", async () => {

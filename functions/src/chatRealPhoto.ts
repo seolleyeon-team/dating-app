@@ -84,21 +84,19 @@ export function resolveSafeApprovedAvatarUrl(userData: Record<string, unknown>):
   return isSafePublicAvatarUrl(fallback) ? fallback : "";
 }
 
-function hasBlockedUser(userData: Record<string, unknown>, otherUid: string): boolean {
-  const blockedUserIds = asStringArray(userData.blockedUserIds);
-  if (blockedUserIds.includes(otherUid)) return true;
-
-  const blockedUsers = userData.blockedUsers;
-  if (Array.isArray(blockedUsers) && asStringArray(blockedUsers).includes(otherUid)) {
-    return true;
-  }
-  if (isRecord(blockedUsers) && blockedUsers[otherUid] === true) {
-    return true;
-  }
-
-  const blocks = userData.blocks;
-  return isRecord(blocks) && blocks[otherUid] === true;
-}
+// Statuses under which an account's real photograph must not be served. The
+// moderation decision writes `banned` / `suspended` together with
+// `isActive: false` (communityModeration.ts); withdrawal writes `withdrawn` /
+// `isWithdrawn`. Same set as the public-profile projection
+// (publicProfileSync.ts), which removes the profile for these accounts.
+const INACTIVE_ACCOUNT_STATUSES = new Set([
+  "banned",
+  "blocked",
+  "deleted",
+  "restricted_rejoin",
+  "suspended",
+  "withdrawn",
+]);
 
 function isInactiveUser(userData: Record<string, unknown>): boolean {
   return (
@@ -106,8 +104,9 @@ function isInactiveUser(userData: Record<string, unknown>): boolean {
     userData.isDeleted === true ||
     userData.suspended === true ||
     userData.isSuspended === true ||
-    asString(userData.status).toLowerCase() === "deleted" ||
-    asString(userData.status).toLowerCase() === "suspended"
+    userData.isWithdrawn === true ||
+    userData.isActive === false ||
+    INACTIVE_ACCOUNT_STATUSES.has(asString(userData.status).toLowerCase())
   );
 }
 
@@ -138,7 +137,13 @@ export function evaluateChatRealPhotoAccess(params: {
   hasTextMessage?: boolean;
   requesterUid: string;
   targetUid: string;
-  requesterUserData: Record<string, unknown>;
+  /// Whether a block exists in either direction between the two participants,
+  /// read from the authoritative store `blocks/{uid}/targets/{otherUid}`
+  /// (reportAndBlockUser and contact blocks write both directions). Required:
+  /// this used to be derived from `users/{uid}.blockedUserIds`, a field
+  /// nothing writes, so the check never fired and a blocked participant
+  /// could still fetch the other's real photograph.
+  blockedBetweenParticipants: boolean;
   targetUserData: Record<string, unknown>;
   privateMediaData: Record<string, unknown>;
   chatBucket?: string;
@@ -161,10 +166,8 @@ export function evaluateChatRealPhotoAccess(params: {
   if (!isActiveChatRoom(params.roomData)) {
     return { kind: "deny", code: "permission-denied", message: "chat room is not active." };
   }
-  if (
-    hasBlockedUser(params.requesterUserData, params.targetUid) ||
-    hasBlockedUser(params.targetUserData, params.requesterUid)
-  ) {
+  // Fail closed: anything other than an explicit "no block" is a block.
+  if (params.blockedBetweenParticipants !== false) {
     return { kind: "deny", code: "permission-denied", message: "chat participant is blocked." };
   }
   if (isInactiveUser(params.targetUserData)) {
@@ -223,16 +226,25 @@ export function createGetChatRealProfilePhotoFunction(
       const targetUid = requirePathSegment(asString(data.targetUid), "targetUid");
 
       const roomRef = firestore.collection("chat_rooms").doc(chatRoomId);
-      const requesterUserRef = firestore.collection("users").doc(requesterUid);
+      const blockRef = (ownerUid: string, blockedUid: string) =>
+        firestore.collection("blocks").doc(ownerUid).collection("targets").doc(blockedUid);
       const targetUserRef = firestore.collection("users").doc(targetUid);
       const privateMediaRef = firestore.collection("userPrivateMedia").doc(targetUid);
       const textMessageQuery = roomRef
         .collection("messages")
         .where("type", "==", "text")
         .limit(1);
-      const [roomSnap, requesterUserSnap, targetUserSnap, privateMediaSnap, textMessageSnap] = await Promise.all([
+      const [
+        roomSnap,
+        requesterBlockSnap,
+        targetBlockSnap,
+        targetUserSnap,
+        privateMediaSnap,
+        textMessageSnap,
+      ] = await Promise.all([
         roomRef.get(),
-        requesterUserRef.get(),
+        blockRef(requesterUid, targetUid).get(),
+        blockRef(targetUid, requesterUid).get(),
         targetUserRef.get(),
         privateMediaRef.get(),
         textMessageQuery.get(),
@@ -245,7 +257,7 @@ export function createGetChatRealProfilePhotoFunction(
         hasTextMessage: !textMessageSnap.empty,
         requesterUid,
         targetUid,
-        requesterUserData: (requesterUserSnap.data() ?? {}) as Record<string, unknown>,
+        blockedBetweenParticipants: requesterBlockSnap.exists || targetBlockSnap.exists,
         targetUserData,
         privateMediaData: (privateMediaSnap.data() ?? {}) as Record<string, unknown>,
       });

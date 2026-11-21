@@ -140,16 +140,25 @@ export type ParticipantStatus =
  * 신청서 대기 단계. `awaitingConfirmation` 은 LEGACY_COMPATIBILITY_ONLY
  * (수락 단계가 있던 시절의 값, 신규 write 없음).
  */
-export type MatchingStage =
-  | "waitingForPartyMembers"
-  | "waitingForCommonDates"
-  | "searchingCandidates"
-  | "formingOwnTeam"
-  | "checkingCrossTeam"
-  | "awaitingConfirmation"
-  | "matched"
-  | "insufficientCandidates"
-  | "cancelled";
+export const MATCHING_STAGES = [
+  "waitingForPartyMembers",
+  "waitingForCommonDates",
+  "searchingCandidates",
+  "formingOwnTeam",
+  "checkingCrossTeam",
+  "awaitingConfirmation",
+  "matched",
+  "insufficientCandidates",
+  "cancelled",
+] as const;
+
+/**
+ * 저장된 stage 를 읽는 파서는 모두 [MATCHING_STAGES] 를 쓴다. 파서마다 목록을
+ * 따로 적어 두면 한쪽에서 값이 빠진다: DNA 수정 경로의 목록에 파티 대기 두
+ * 단계가 없어서, 수정 정책(editPolicy)이 허용한 수정이 "상태를 확인할 수
+ * 없어" 로 전부 거부됐었다.
+ */
+export type MatchingStage = (typeof MATCHING_STAGES)[number];
 
 /**
  * 신규 business flow 가 더 이상 쓰지 않는 상태 (LEGACY_COMPATIBILITY_ONLY).
@@ -531,6 +540,18 @@ export function kstDayOf(instant: Date | number): Date {
       shifted.getUTCDate()
     )
   );
+}
+
+/**
+ * KST 기준 오늘보다 앞선 날짜인지.
+ *
+ * 지난 날짜에는 미팅이 열릴 수 없다. 매칭이 그런 날짜로도 미팅을 만들면
+ * 약속 확정 단계에서 남은 슬롯이 없어 곧바로 취소되고, 재오픈된 같은 여섯
+ * 명이 다음 tick 에 같은 날짜로 다시 묶인다 (매칭 → 취소 → 재매칭 반복).
+ * 당일 허용 여부는 여기서 정하지 않는다: 오늘은 past 가 아니다.
+ */
+export function isPastDateKey(dateKey: string, nowMs: number): boolean {
+  return dateKey < formatDateKey(kstDayOf(nowMs));
 }
 
 /** 선택 가능한 첫 날짜 (KST 기준 내일) */

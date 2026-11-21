@@ -202,9 +202,11 @@ describe("SEC-P3-01 정상 좋아요 흐름 (원자 batch)", () => {
   });
 });
 
+// P0-3: 댓글 작성/삭제는 createCommunityComment / deleteCommunityComment callable
+// 이 카운터까지 함께 쓴다. 클라이언트가 commentCount 를 직접 움직일 수 없다.
 describe("SEC-P3-01 댓글 카운터 흐름", () => {
-  it("정상 댓글 카운터 증가(commentCount/score7d +1)는 허용", async () => {
-    await assertSucceeds(
+  it("댓글 카운터 증가(commentCount/score7d +1)는 클라이언트에서 거부", async () => {
+    await assertFails(
       updateDoc(postRef(authed(LIKER)), {
         commentCount: increment(1),
         score7d: increment(1),
@@ -213,7 +215,7 @@ describe("SEC-P3-01 댓글 카운터 흐름", () => {
     );
   });
 
-  it("댓글 소프트삭제 카운터 감소(commentCount -1, score7d 불변)는 허용", async () => {
+  it("댓글 소프트삭제 카운터 감소(commentCount -1)는 클라이언트에서 거부", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(
         postRef(ctx.firestore()),
@@ -221,7 +223,7 @@ describe("SEC-P3-01 댓글 카운터 흐름", () => {
         { merge: true }
       );
     });
-    await assertSucceeds(
+    await assertFails(
       updateDoc(postRef(authed(LIKER)), {
         commentCount: increment(-1),
         updatedAt: serverTimestamp(),
@@ -231,8 +233,10 @@ describe("SEC-P3-01 댓글 카운터 흐름", () => {
 });
 
 describe("SEC-P3-01 소프트삭제/작성 권한 회귀 확인", () => {
-  it("작성자는 자신의 글을 소프트삭제할 수 있다", async () => {
-    await assertSucceeds(
+  // P0-3: 글 작성/삭제는 createCommunityPost / deleteCommunityPost callable 전용.
+  // 공개 문서에는 작성자 식별자가 없으므로 rules 로 "작성자 본인"을 판정하지 않는다.
+  it("작성자도 클라이언트에서 직접 소프트삭제할 수 없다 (deleteCommunityPost 전용)", async () => {
+    await assertFails(
       updateDoc(postRef(authed(AUTHOR)), {
         isDeleted: true,
         updatedAt: serverTimestamp(),
@@ -249,8 +253,8 @@ describe("SEC-P3-01 소프트삭제/작성 권한 회귀 확인", () => {
     );
   });
 
-  it("정상 글 작성(authorId==self, 카운터 0)은 허용", async () => {
-    await assertSucceeds(
+  it("클라이언트의 직접 글 작성은 거부 (createCommunityPost 전용)", async () => {
+    await assertFails(
       setDoc(doc(authed(LIKER), "bamboo_posts", "p2"), {
         postId: "p2",
         authorId: LIKER,
