@@ -264,6 +264,8 @@ emulators, firebase-tools 15.18.0 locally; CI uses 15.30.2). "Before" is PR
 | `flutter analyze` | no issues | no issues |
 | `flutter test` (whole suite) | 1,209 pass / 12 fail | 1,381 pass / 11 fail — the 11 golden diffs only |
 | Python `pytest tests recsys/tests` | 2,422 pass / 3 fail (2026-11-13) | 2,425 pass / 17 skipped / 0 fail |
+| `flutter build apk --debug --flavor production` | green in the PR #158 CI run | built locally; the merged manifest carries `allowBackup="false"` and both rule files |
+| `flutter build web --release` | green in the PR #158 CI run | built locally |
 | Python, the 95 files CI did not run, with CI-absent packages made unimportable | — | 4 collection errors + 20 failures without `httpx` / `Flask`; all green with them |
 
 One step failed in the first full emulator pass: the two new blind-meeting
@@ -283,7 +285,8 @@ Guard dry-run on this tree
 KAKAO_APP_ID`. Expected: no function can be deployed from this branch until
 the owner supplies the key (§6 step 2).
 
-Not run: iOS build (no macOS), a signed Android release bundle, two-device
+Not run: iOS build (no macOS), the staging-flavor APK, an Android release
+bundle (signed or CI throwaway key), two-device
 BLE, any real-device run, GitHub CI for this branch (not pushed). The
 `python-full` job and the eleven new emulator steps have therefore never run
 on GitHub.
