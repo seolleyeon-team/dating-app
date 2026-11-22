@@ -33,6 +33,7 @@ const {
   collection,
   doc,
   getDoc,
+  serverTimestamp,
   setDoc,
   updateDoc,
 } = require("firebase/firestore");
@@ -98,6 +99,11 @@ after(async () => {
 
 function authed(uid) {
   return testEnv.authenticatedContext(uid).firestore();
+}
+
+/** Canonical app session (legacy Kakao custom token claim), as the app runs. */
+function appSession(uid) {
+  return testEnv.authenticatedContext(uid, { kakaoUserId: uid }).firestore();
 }
 
 function anon() {
@@ -192,6 +198,28 @@ describe("운영 설정", () => {
 });
 
 describe("analytics", () => {
+  // B-06: analytics need a canonical app session and the exact shape the
+  // client sink writes ({event, params, createdAt: serverTimestamp()}).
+  it("로그인하지 않았거나 앱 세션이 아니면 append 할 수 없다", async () => {
+    const payload = () => ({
+      event: "meeting_roulette_shown",
+      params: {},
+      createdAt: serverTimestamp(),
+    });
+    await assertFails(
+      addDoc(collection(anon(), "meetingIcebreakerAnalytics"), payload())
+    );
+    await assertFails(
+      addDoc(collection(authed(OWNER), "meetingIcebreakerAnalytics"), payload())
+    );
+    await assertFails(
+      addDoc(collection(appSession(OWNER), "meetingIcebreakerAnalytics"), {
+        event: "meeting_roulette_shown",
+        params: {},
+      })
+    );
+  });
+
   it("허용된 이벤트는 append 할 수 있다", async () => {
     for (const event of [
       "meeting_icebreaker_prompt_opened",
@@ -200,7 +228,8 @@ describe("analytics", () => {
       "bomb_timer_exploded",
     ]) {
       await assertSucceeds(
-        addDoc(collection(authed(OWNER), "meetingIcebreakerAnalytics"), {
+        addDoc(collection(appSession(OWNER), "meetingIcebreakerAnalytics"), {
+          createdAt: serverTimestamp(),
           event,
           params: { meeting_type: "blindTasteMeeting", game_type: "bombPass" },
         })
@@ -210,7 +239,8 @@ describe("analytics", () => {
 
   it("다른 기능의 이벤트 이름은 거부한다", async () => {
     await assertFails(
-      addDoc(collection(authed(OWNER), "meetingIcebreakerAnalytics"), {
+      addDoc(collection(appSession(OWNER), "meetingIcebreakerAnalytics"), {
+          createdAt: serverTimestamp(),
         event: "chat_message_sent",
         params: {},
       })
@@ -219,13 +249,15 @@ describe("analytics", () => {
 
   it("폭탄 숨겨진 시간을 담으면 거부한다", async () => {
     await assertFails(
-      addDoc(collection(authed(OWNER), "meetingIcebreakerAnalytics"), {
+      addDoc(collection(appSession(OWNER), "meetingIcebreakerAnalytics"), {
+          createdAt: serverTimestamp(),
         event: "bomb_timer_exploded",
         params: { hiddenSeconds: 7 },
       })
     );
     await assertFails(
-      addDoc(collection(authed(OWNER), "meetingIcebreakerAnalytics"), {
+      addDoc(collection(appSession(OWNER), "meetingIcebreakerAnalytics"), {
+          createdAt: serverTimestamp(),
         event: "bomb_timer_exploded",
         params: { bombSeconds: 7 },
       })
@@ -241,7 +273,8 @@ describe("analytics", () => {
       { fcmToken: "token" },
     ]) {
       await assertFails(
-        addDoc(collection(authed(OWNER), "meetingIcebreakerAnalytics"), {
+        addDoc(collection(appSession(OWNER), "meetingIcebreakerAnalytics"), {
+          createdAt: serverTimestamp(),
           event: "meeting_roulette_shown",
           params,
         })

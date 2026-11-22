@@ -23,6 +23,52 @@ test("real-name verification data is stored in a server-only collection", () => 
   assert.match(indexSrc, /verifiedPhoneHashIndexOwnerRef\(verifiedPhoneHash, uid\)/);
 });
 
+function adultVerificationCallable(): string {
+  const start = indexSrc.indexOf("export const verifyAdultIdentityAfterLogin");
+  assert.notEqual(start, -1);
+  return indexSrc.slice(start, indexSrc.indexOf("\nexport const ", start + 1));
+}
+
+test("AUD-11: the duplicate-identity decision is made inside the verification transaction", () => {
+  const callable = adultVerificationCallable();
+  const txStart = callable.indexOf("await db.runTransaction(async (tx) => {");
+  assert.notEqual(txStart, -1);
+  const beforeTransaction = callable.slice(0, txStart);
+  const transaction = callable.slice(txStart);
+
+  // No lookup of another account's verification record outside the transaction.
+  assert.doesNotMatch(beforeTransaction, /userPrivateVerifications"\)\s*\.where\(/);
+  assert.doesNotMatch(indexSrc, /assertUniqueIdentityNotReused|assertIdentityVerificationNotReused/);
+  // Claim planned (reads) before the first write, applied with the record.
+  const plan = transaction.indexOf("await planAdultIdentityClaim(db, tx, {");
+  const apply = transaction.indexOf("identityClaim.apply(tx);");
+  const firstWrite = transaction.search(/tx\.(set|delete|update|create)\(/);
+  assert.ok(plan !== -1 && apply !== -1 && firstWrite !== -1);
+  assert.ok(plan < firstWrite, "the claim must be read before any write");
+  assert.ok(apply < transaction.indexOf("tx.set(\n        privateRef"), "claim and record are written together");
+  assert.match(transaction, /next: \{ ciHash, diHash, uniqueKeyHash, identityVerificationId \}/);
+});
+
+test("AUD-11: an incomplete verification cannot downgrade an account", () => {
+  const callable = adultVerificationCallable();
+  assert.doesNotMatch(callable, /adultVerified: false/, "no unconditional adultVerified:false write");
+  assert.match(
+    callable,
+    /if \(status !== "VERIFIED"\) \{[\s\S]{0,400}?await recordIncompleteAdultVerification\(db, uid\);\s*throw new HttpsError\(/,
+  );
+});
+
+test("AUD-11: identity values and the provider response are not logged", () => {
+  const start = indexSrc.indexOf("async function fetchPortOneIdentityVerification(");
+  const helper = indexSrc.slice(start, indexSrc.indexOf("\n}\n", start));
+  assert.doesNotMatch(helper, /body: parsed|identityVerificationId,\n/);
+  for (const call of adultVerificationCallable().match(/logger\.\w+\([\s\S]*?\);/g) ?? []) {
+    assert.doesNotMatch(call, /\b(ci|di|customer|phoneNumber|birthDate|ciHash|diHash|uniqueKeyHash|uniqueKey|verifiedPhoneHash|identityVerificationId)\b/);
+  }
+  const ownership = readFileSync(resolve(__dirname, "../src/adultIdentityOwnership.ts"), "utf8");
+  assert.doesNotMatch(ownership, /logger\.|console\./, "the ownership module logs nothing");
+});
+
 test("contact avoidance uses KG Inicis verification hashes, not Kakao phone data", () => {
   const contactStart = indexSrc.indexOf("export const syncContactBlocks");
   const contactEnd = indexSrc.indexOf(

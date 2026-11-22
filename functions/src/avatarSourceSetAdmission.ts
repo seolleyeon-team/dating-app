@@ -43,6 +43,7 @@ import {
   enqueueAvatarSourceSetJob,
   type AvatarSourceSetQueuePayload,
 } from "./avatarSourceSetQueue";
+import { recordAvatarEnqueueSuccess } from "./avatarEnqueueOutcome";
 
 const PRIVATE_SOURCE_BUCKET =
   "seolleyeon-final-private-source-photos";
@@ -570,20 +571,9 @@ export async function admitAvatarGenerationFromOnboardingPhotos(
           schemaVersion: JOB_SCHEMA_VERSION,
           idempotencyKey: `${uid}:${jobId}:avatar_generation_source_set_v1`,
         };
+        let queue: Awaited<ReturnType<typeof deps.enqueueAvatar>>;
         try {
-          const queue = await deps.enqueueAvatar(queuePayload);
-          await jobRef.set(
-            {
-              status: "queued",
-              queueMode: queue.mode,
-              queueStatus: queue.status,
-              errorCode: FieldValue.delete(),
-              retryable: FieldValue.delete(),
-              queueUpdatedAt: FieldValue.serverTimestamp(),
-              updatedAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true },
-          );
+          queue = await deps.enqueueAvatar(queuePayload);
         } catch (error) {
           // Typed, client-safe reason. No provider state is touched: the job
           // never left Functions, so generationClaim/providerUsage stay absent.
@@ -617,6 +607,21 @@ export async function admitAvatarGenerationFromOnboardingPhotos(
             "internal",
             "avatar_queue_dispatch_failed",
           );
+        }
+        // AUD-09: the task exists from here on. Recording that must neither
+        // overwrite a state the worker already wrote nor, if this write
+        // fails, relabel a queued task as a dispatch failure (the client
+        // would retry a job that is about to run).
+        try {
+          await recordAvatarEnqueueSuccess(firestore, jobRef, {
+            queueMode: queue.mode,
+            queueStatus: queue.status,
+          });
+        } catch (error) {
+          logger.error("Avatar source-set enqueue bookkeeping failed", {
+            jobIdHash: digest(jobId).slice(0, 12),
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
 

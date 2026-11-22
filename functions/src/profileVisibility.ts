@@ -5,7 +5,7 @@
  * candidate.  KST is fixed at UTC+09:00 (Korea has no daylight saving time).
  */
 
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+import { KST_OFFSET_MS, kstDateKeyCompact } from "./shared/kstDate";
 
 type UserData = Record<string, unknown> | null | undefined;
 
@@ -14,10 +14,8 @@ function validDateKey(value: unknown): string | null {
 }
 
 export function kstDateKey(now: Date = new Date()): string {
-  return new Date(now.getTime() + KST_OFFSET_MS)
-    .toISOString()
-    .slice(0, 10)
-    .replace(/-/g, "");
+  // AUD-22: one KST calendar-day rule (shared/kstDate.ts).
+  return kstDateKeyCompact(now);
 }
 
 export function nextKstDateKey(now: Date = new Date()): string {

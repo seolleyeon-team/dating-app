@@ -478,3 +478,36 @@ test("K: a meeting document carrying only the app-format status is judged by it 
   assert.equal(meeting.serverStatus, undefined);
   assert.equal(meeting.replacementSearchActive, false);
 });
+
+test("L: a deadline left behind by an earlier, already filled search is not reused — a later vacancy gets its own search window", async () => {
+  const dateKey = dateKeyInWindow(8);
+  const { meetingId, males, females } = await matchMeeting(dateKey);
+  await leaveBlindMeeting({ meetingId, userId: males[0] });
+  const replacement = `${tagOf()}_m_first`;
+  await seedApplicant({ userId: replacement, gender: "male" }, [dateKey]);
+  assert.equal(await fillBlindMeetingVacancies(meetingId), 1);
+  assert.equal((await meetingData(meetingId)).replacementSearchActive, false, "first search closed");
+  // Time passes: the first search's deadline is long gone when the next member leaves.
+  await db.collection("blindMeetings").doc(meetingId).set(
+    { replacementSearchDeadlineAt: Timestamp.fromMillis(Date.now() - 3_600_000) },
+    { merge: true }
+  );
+
+  await leaveBlindMeeting({ meetingId, userId: females[0] });
+  let meeting = await meetingData(meetingId);
+  assert.equal(meeting.replacementSearchActive, true);
+  assert.ok((meeting.replacementSearchDeadlineAt as Timestamp).toMillis() > Date.now(), "the new search has a window of its own");
+  await processBlindMeetingReplacementSearches();
+
+  meeting = await meetingData(meetingId);
+  assert.notEqual(meeting.serverStatus, "cancelled", "the meeting is not cancelled before the search had its window");
+  assert.equal(meeting.replacementSearchActive, true, "still searching");
+  for (const uid of [...males.slice(1), ...females.slice(1), replacement]) {
+    assert.equal((await db.collection("users").doc(uid).get()).data()?.heartBalance, 0, `${uid}: no refund`);
+  }
+
+  // A seat opened while that search is still running shares its window (unchanged contract, see G).
+  const openDeadline = (meeting.replacementSearchDeadlineAt as Timestamp).toMillis();
+  await leaveBlindMeeting({ meetingId, userId: males[1] });
+  assert.equal(((await meetingData(meetingId)).replacementSearchDeadlineAt as Timestamp).toMillis(), openDeadline);
+});

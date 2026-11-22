@@ -1,6 +1,7 @@
 import { FieldPath, FieldValue, type Firestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 
+import { isRestrictedAccountData } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 
 type AuthContext = {
@@ -55,14 +56,16 @@ function userIsInactive(data: Record<string, unknown>): boolean {
     data.isWithdrawn === true ||
     data.loginDisabled === true ||
     data.isActive === false ||
-    ["banned", "blocked", "deleted", "suspended", "withdrawn"].includes(status);
+    ["banned", "blocked", "deleted", "suspended", "withdrawn"].includes(status) ||
+    isRestrictedAccountData(data);
 }
 
 function displayProfile(uid: string, data: Record<string, unknown>) {
   const onboarding = asRecord(data.onboarding);
   const nickname = asText(data.nickname, 80) || asText(onboarding.nickname, 80) || "이름 미설정";
   const university = asText(data.university, 100) || asText(onboarding.university, 100);
-  const avatar = asText(data.profileImageUrl, 2048) || asText(onboarding.representativeImageUrl, 2048);
+  // AUD-22 / B-07: onboarding.representativeImageUrl was client-writable.
+  const avatar = asText(data.profileImageUrl, 2048);
   return {
     userId: uid,
     nickname,

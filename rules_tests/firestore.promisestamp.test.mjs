@@ -34,6 +34,13 @@ const ROOM = "room_season_33";
 const BLIND_ROOM = "room_blind_locked";
 const PROMISE = "promise_1";
 
+// B-12: a meeting time written by a client must be in the SERVER future (the
+// client form already requires "at least 10 minutes from now"). Seeded
+// documents keep their fixed past time on purpose: the arrival-stamp timeout
+// tests below need a deadline that has already passed.
+const NEW_MEETING_TIME = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+const EDITED_MEETING_TIME = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000);
+
 function promiseSeed(overrides = {}) {
   return {
     promiseId: PROMISE,
@@ -150,7 +157,7 @@ test("a participant CAN create a normal promise for themselves", async () => {
   await assertSucceeds(
     setDoc(
       doc(c, "chat_rooms", ROOM, "promises", "promise_2"),
-      promiseSeed({ promiseId: "promise_2", requestedBy: C, requestedTo: D })
+      promiseSeed({ promiseId: "promise_2", requestedBy: C, requestedTo: D, dateTime: NEW_MEETING_TIME })
     )
   );
 });
@@ -165,6 +172,7 @@ test("a participant CAN create a promise carrying the optional place fields", as
         promiseId: "promise_3",
         requestedBy: C,
         requestedTo: D,
+        dateTime: NEW_MEETING_TIME,
         placeId: "kakao_place_1",
         placeAddress: "서울시 서대문구",
         placeLat: 37.55,
@@ -365,7 +373,7 @@ test("the recipient CAN edit the promise, which swaps requestedBy/requestedTo", 
     updateDoc(doc(b, "chat_rooms", ROOM, "promises", PROMISE), {
       requestedBy: B,
       requestedTo: A,
-      dateTime: new Date("2026-09-11T12:00:00Z"),
+      dateTime: EDITED_MEETING_TIME,
       place: "홍대",
       placeCategory: "restaurant",
       status: "requested",
@@ -387,7 +395,7 @@ function promiseEditBatch(db, editor, counterpart) {
   batch.update(doc(db, "chat_rooms", ROOM, "promises", PROMISE), {
     requestedBy: editor,
     requestedTo: counterpart,
-    dateTime: new Date("2026-09-11T12:00:00Z"),
+    dateTime: EDITED_MEETING_TIME,
     place: "홍대",
     placeCategory: "restaurant",
     status: "requested",
@@ -400,7 +408,7 @@ function promiseEditBatch(db, editor, counterpart) {
     senderId: editor,
     type: "promise_request",
     text: "약속 요청",
-    dateTime: new Date("2026-09-11T12:00:00Z"),
+    dateTime: EDITED_MEETING_TIME,
     place: "홍대",
     placeCategory: "restaurant",
     status: "requested",

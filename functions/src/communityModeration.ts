@@ -1,7 +1,31 @@
-import { FieldValue, Timestamp, type DocumentReference, type Firestore } from "firebase-admin/firestore";
+/**
+ * Community (Bamboo) moderation console + deadline alerts.
+ *
+ * NEW-25 source authority (2026-11-21). The five functions deployed 2026-09-17
+ * (getCommunityModerationAccess, listCommunityModerationReports,
+ * setCommunityReportReviewing, restoreCommunityAccount,
+ * checkCommunityModerationDeadlines) serve two images whose Cloud Build inputs
+ * are still in the source bucket; `src/communityModeration.ts` of that archive
+ * is byte-identical to git 94f6b0b8 (PR #146), the ancestor of this file.
+ *   preserved from live  operations claim + admin/{uid}.active gate, queue view
+ *                        and its fields, reviewing transition, restore + audit
+ *                        record, alert ids / fields, partition scope
+ *   changed since        P0-3 hide path through the private owner mappings,
+ *                        dismissal of owner-less reports, defined alert
+ *                        deadline (AUD-14 first half)
+ *   added 2026-11-21     restricted operator refused; reviewing / decision /
+ *                        restore re-check state inside a transaction; restore
+ *                        refuses a withdrawn account; Auth enforcement of a
+ *                        sanction can be retried; open queue and deadline sweep
+ *                        query only open Bamboo reports and page through all of
+ *                        them; an alert is created once and never reset
+ */
+import { FieldPath, FieldValue, Timestamp, type DocumentReference, type Firestore, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import type { Auth } from "firebase-admin/auth";
+import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { accountStateError, classifyAccountState } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 
 type AuthContext = { uid?: string; token?: Record<string, unknown> } | null | undefined;
@@ -17,6 +41,22 @@ type Dependencies = {
 const MAX_ACTION_REASON_LENGTH = 2000;
 const MAX_REPORTS = 150;
 const HOUR_MS = 60 * 60 * 1000;
+/** The only reports the console handles (reportBambooContent writes them). */
+const QUEUE_SOURCES = ["bamboo_post", "bamboo_comment"] as const;
+const OPEN_STATUSES = ["pending", "reviewing"] as const;
+const CLOSED_STATUSES = ["actioned", "dismissed"];
+/** First deadline alert: 20 h after the report, i.e. 4 h before the 24 h SLA. */
+const FIRST_ALERT_AGE_MS = 20 * HOUR_MS;
+const DEADLINE_PAGE_SIZE = 200;
+/** Stop paging well before the schedule timeout; the next run continues. */
+const DEADLINE_SWEEP_BUDGET_MS = 240 * 1000;
+export const MODERATION_DEADLINE_SCHEDULE_OPTIONS = {
+  schedule: "every 15 minutes",
+  timeZone: "Asia/Seoul",
+  // The 60 s default was the only bound of an unpaged scan.
+  timeoutSeconds: 300,
+  memory: "256MiB",
+} as const;
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -70,11 +110,35 @@ async function requireOperations(firestore: Firestore, auth: AuthContext): Promi
   if (auth?.token?.operations !== true) {
     throw new HttpsError("permission-denied", "운영팀 권한이 필요해요.");
   }
-  const admin = await firestore.collection("admin").doc(uid).get();
+  const [admin, account] = await Promise.all([
+    firestore.collection("admin").doc(uid).get(),
+    firestore.collection("users").doc(uid).get(),
+  ]);
   if (!admin.exists || admin.data()?.active !== true) {
     throw new HttpsError("permission-denied", "활성 운영팀 계정을 확인할 수 없어요.");
   }
+  // An operator is a promoted app account (provision_operations_account.js).
+  // A moderation sanction or withdrawal on that account ends its console
+  // access even while the claim and the admin record are still in place.
+  const state = classifyAccountState(account.exists ? record(account.data()) : null);
+  if (state === "suspended" || state === "banned" || state === "withdrawn") {
+    throw accountStateError(state);
+  }
   return uid;
+}
+
+function isMissingIndex(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 9 || code === "failed-precondition";
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 6 || code === "already-exists";
+}
+
+function isQueueSource(value: unknown): boolean {
+  return (QUEUE_SOURCES as readonly string[]).includes(text(value, 80));
 }
 
 function timestampMs(value: unknown): number | null {
@@ -201,11 +265,28 @@ export function createCommunityModerationCallables(deps: Dependencies) {
     const requestedScope = scope(requestData(request).scope);
     // Include recent legacy reports that predate deadlineAt, while preserving
     // a deadline-first order for the active operations queue.
+    // The two unfiltered reads used to be the whole queue: 150 reports of any
+    // kind, so account reports could push open Bamboo reports out of it. The
+    // open queue is now read by source and status (oldest first) in addition
+    // to them; the unfiltered reads keep processed history and legacy
+    // documents visible exactly as before.
+    const reports = firestore.collection("reports");
+    let open: QueryDocumentSnapshot[] = [];
+    try {
+      const pages = await Promise.all(QUEUE_SOURCES.flatMap((source) => OPEN_STATUSES.map((status) =>
+        reports.where("source", "==", source).where("status", "==", status)
+          .orderBy("createdAt", "asc").limit(MAX_REPORTS).get())));
+      open = pages.flatMap((snapshot) => snapshot.docs);
+    } catch (error) {
+      if (!isMissingIndex(error)) throw error;
+      // reports(source, status, createdAt) is not deployed yet: previous reads only.
+      logger.error("communityModeration.list: composite index missing, using the unfiltered queue", { error: String(error) });
+    }
     const [byDeadline, recent] = await Promise.all([
-      firestore.collection("reports").orderBy("deadlineAt", "asc").limit(MAX_REPORTS).get(),
-      firestore.collection("reports").orderBy("createdAt", "desc").limit(MAX_REPORTS).get(),
+      reports.orderBy("deadlineAt", "asc").limit(MAX_REPORTS).get(),
+      reports.orderBy("createdAt", "desc").limit(MAX_REPORTS).get(),
     ]);
-    const queue = [...new Map([...byDeadline.docs, ...recent.docs]
+    const queue = [...new Map([...open, ...byDeadline.docs, ...recent.docs]
       .map((doc) => [doc.id, doc])).values()]
       .map((doc) => reportView(doc.id, record(doc.data())))
       .filter((item) => item.source === "bamboo_post" || item.source === "bamboo_comment")
@@ -223,14 +304,18 @@ export function createCommunityModerationCallables(deps: Dependencies) {
     const operatorId = await requireOperations(firestore, request.auth);
     const reportId = safeUid(requestData(request).reportId, "reportId");
     const ref = firestore.collection("reports").doc(reportId);
-    const report = await ref.get();
-    if (!report.exists || !["bamboo_post", "bamboo_comment"].includes(text(report.get("source"), 80))) {
-      throw new HttpsError("not-found", "신고를 찾을 수 없어요.");
-    }
-    if (["actioned", "dismissed"].includes(text(report.get("status"), 40))) {
-      throw new HttpsError("failed-precondition", "이미 처리된 신고예요.");
-    }
-    await ref.set({ status: "reviewing", reviewingBy: operatorId, reviewingAt: FieldValue.serverTimestamp() }, { merge: true });
+    // Read and write in one transaction: a decision committed in between must
+    // not be overwritten back to "reviewing".
+    await firestore.runTransaction(async (transaction) => {
+      const report = await transaction.get(ref);
+      if (!report.exists || !isQueueSource(report.get("source"))) {
+        throw new HttpsError("not-found", "신고를 찾을 수 없어요.");
+      }
+      if (CLOSED_STATUSES.includes(text(report.get("status"), 40))) {
+        throw new HttpsError("failed-precondition", "이미 처리된 신고예요.");
+      }
+      transaction.set(ref, { status: "reviewing", reviewingBy: operatorId, reviewingAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
     return { ok: true };
   });
 
@@ -251,18 +336,59 @@ export function createCommunityModerationCallables(deps: Dependencies) {
     if (!["bamboo_post", "bamboo_comment"].includes(text(report.source, 80))) {
       throw new HttpsError("failed-precondition", "대나무숲 신고만 처리할 수 있어요.");
     }
-    if (["actioned", "dismissed"].includes(text(report.status, 40))) {
-      throw new HttpsError("failed-precondition", "이미 처리된 신고예요.");
+    const actionType = decision === "ban" ? "permanent_ban" : "indefinite_suspension";
+    const alreadyClosed = () => new HttpsError("failed-precondition", "이미 처리된 신고예요.");
+    // The sign-in block (Auth disable + token revocation) runs after the
+    // sanction is stored and cannot share its transaction. When it failed, the
+    // report was already "actioned" and refused every retry, leaving the
+    // account sanctioned in Firestore but enabled in Auth. The same decision
+    // on such a report now only repeats the Auth step.
+    const enforceSignInBlock = async (uid: string) => {
+      try {
+        await auth.updateUser(uid, { disabled: true });
+        await auth.revokeRefreshTokens(uid);
+      } catch (error) {
+        logger.error("communityModeration.decide: sign-in block failed after the sanction was stored", {
+          reportId, decision, error: String(error),
+        });
+        throw new HttpsError("unavailable", "제재는 기록됐지만 로그인 차단을 완료하지 못했어요. 같은 처리를 다시 시도해주세요.");
+      }
+      await reportRef.set({ authEnforcedAt: FieldValue.serverTimestamp() }, { merge: true });
+    };
+    if (CLOSED_STATUSES.includes(text(report.status, 40))) {
+      const sanctionedId = text(report.reportedId, 128);
+      if (
+        decision === "dismiss" || text(report.status, 40) !== "actioned" ||
+        text(report.actionType, 40) !== actionType || report.authEnforcedAt instanceof Timestamp ||
+        !sanctionedId
+      ) {
+        throw alreadyClosed();
+      }
+      // Only while the account still carries this sanction (not restored since).
+      const sanctioned = record((await firestore.collection("users").doc(safeUid(sanctionedId, "reportedId")).get()).data());
+      const state = classifyAccountState(sanctioned);
+      if (text(sanctioned.moderationActionType, 40) !== actionType || (state !== "suspended" && state !== "banned")) {
+        throw alreadyClosed();
+      }
+      await enforceSignInBlock(sanctionedId);
+      return { ok: true, decision, signInBlockRetried: true };
     }
     const dataPartition = partition(report.dataPartition);
+    // The decision is written only if the report is still open at commit time
+    // (two operators, or a decision racing the reviewing transition).
+    const dismiss = () => firestore.runTransaction(async (transaction) => {
+      const current = await transaction.get(reportRef);
+      if (!current.exists || CLOSED_STATUSES.includes(text(current.get("status"), 40))) throw alreadyClosed();
+      transaction.set(reportRef, {
+        status: "dismissed", dismissalReason: reason, dismissedBy: operatorId,
+        dismissedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    });
     // P0-3: a Bamboo report on content whose historical owner could not be
     // proven carries reportedId null. It can still be dismissed; an account
     // action needs a resolved owner.
     if (decision === "dismiss" && !text(report.reportedId, 128)) {
-      await reportRef.set({
-        status: "dismissed", dismissalReason: reason, dismissedBy: operatorId,
-        dismissedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
+      await dismiss();
       return { ok: true, decision };
     }
     const reportedId = safeUid(report.reportedId, "reportedId");
@@ -274,16 +400,14 @@ export function createCommunityModerationCallables(deps: Dependencies) {
     }
 
     if (decision === "dismiss") {
-      await reportRef.set({
-        status: "dismissed", dismissalReason: reason, dismissedBy: operatorId,
-        dismissedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
+      await dismiss();
       return { ok: true, decision };
     }
 
-    const actionType = decision === "ban" ? "permanent_ban" : "indefinite_suspension";
     const hidden = await hideAuthorCommunityContent({ firestore, partition: dataPartition, authorId: reportedId, moderatorId: operatorId, reportId });
     await firestore.runTransaction(async (transaction) => {
+      const current = await transaction.get(reportRef);
+      if (!current.exists || CLOSED_STATUSES.includes(text(current.get("status"), 40))) throw alreadyClosed();
       transaction.set(accountRef, {
         status: decision === "ban" ? "banned" : "suspended",
         loginDisabled: true, isActive: false,
@@ -301,8 +425,7 @@ export function createCommunityModerationCallables(deps: Dependencies) {
         createdAt: FieldValue.serverTimestamp(), removedContent: hidden,
       });
     });
-    await auth.updateUser(reportedId, { disabled: true });
-    await auth.revokeRefreshTokens(reportedId);
+    await enforceSignInBlock(reportedId);
     return { ok: true, decision, ...hidden };
   });
 
@@ -313,21 +436,35 @@ export function createCommunityModerationCallables(deps: Dependencies) {
     const reason = text(input.reason, MAX_ACTION_REASON_LENGTH);
     if (!reason) throw new HttpsError("invalid-argument", "해제 사유를 입력해주세요.");
     const userRef = firestore.collection("users").doc(userId);
-    const user = await userRef.get();
-    if (!user.exists) throw new HttpsError("not-found", "계정을 찾을 수 없어요.");
-    if (text(user.get("status"), 40) === "banned") {
-      throw new HttpsError("failed-precondition", "영구 정지는 별도 운영 절차로 검토해주세요.");
-    }
-    await userRef.set({
-      status: "active", loginDisabled: false, isActive: true,
-      moderationRestoredBy: operatorId, moderationRestoredAt: FieldValue.serverTimestamp(),
-      moderationRestoreReason: reason, updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    await auth.updateUser(userId, { disabled: false });
-    await firestore.collection("moderation_audit_logs").add({
-      type: "suspension_lifted", userId, reason, actorId: operatorId,
-      createdAt: FieldValue.serverTimestamp(),
+    // The state check, the account update and the audit record commit together
+    // (the audit record used to be written last and was lost when the Auth
+    // call failed). Auth is re-enabled afterwards; a failure there leaves the
+    // account restored in Firestore and the call can simply be repeated.
+    await firestore.runTransaction(async (transaction) => {
+      const user = await transaction.get(userRef);
+      if (!user.exists) throw new HttpsError("not-found", "계정을 찾을 수 없어요.");
+      const data = record(user.data());
+      const state = classifyAccountState(data);
+      if (state === "banned") {
+        throw new HttpsError("failed-precondition", "영구 정지는 별도 운영 절차로 검토해주세요.");
+      }
+      // A withdrawn / deleted account is not a suspension: lifting it would
+      // bring a deleted account back (P1-5).
+      if (state === "withdrawn") {
+        throw new HttpsError("failed-precondition", "탈퇴한 계정은 정지 해제 대상이 아니에요.");
+      }
+      transaction.set(userRef, {
+        status: "active", loginDisabled: false, isActive: true,
+        moderationRestoredBy: operatorId, moderationRestoredAt: FieldValue.serverTimestamp(),
+        moderationRestoreReason: reason, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      transaction.set(firestore.collection("moderation_audit_logs").doc(), {
+        type: "suspension_lifted", userId, reason, actorId: operatorId,
+        dataPartition: partition(data.dataPartition),
+        createdAt: FieldValue.serverTimestamp(),
+      });
     });
+    await auth.updateUser(userId, { disabled: false });
     return { ok: true };
   });
 
@@ -343,30 +480,193 @@ export function moderationAlertDeadline(storedDeadlineAt: unknown, deadlineMs: n
   return storedDeadlineAt instanceof Timestamp ? storedDeadlineAt : Timestamp.fromMillis(deadlineMs);
 }
 
-// The schedule persists queue alerts for the admin app. It never makes an
-// automated moderation decision: reports remain human-reviewed.
-export function createCommunityModerationDeadlineSchedule(firestore: Firestore) {
-  return onSchedule({ schedule: "every 15 minutes", timeZone: "Asia/Seoul" }, async () => {
-    const now = Date.now();
-    const reports = await firestore.collection("reports").orderBy("createdAt", "desc").limit(MAX_REPORTS).get();
-    const batch = firestore.batch();
-    for (const doc of reports.docs) {
+export type ModerationAlertLevel = "overdue" | "23h" | "20h" | "new";
+
+/**
+ * Alert level of an open report (the 2026-09-17 rule, unchanged): overdue at
+ * the deadline, otherwise by age. `createdAt` is absent only on malformed
+ * documents; their age is then taken from the deadline (24 h SLA).
+ */
+export function moderationAlertLevel(
+  nowMs: number,
+  createdAtMs: number | null,
+  deadlineMs: number | null,
+): ModerationAlertLevel | null {
+  if (deadlineMs == null) return null;
+  if (nowMs >= deadlineMs) return "overdue";
+  const ageMs = nowMs - (createdAtMs ?? deadlineMs - 24 * HOUR_MS);
+  if (ageMs >= 23 * HOUR_MS) return "23h";
+  if (ageMs >= FIRST_ALERT_AGE_MS) return "20h";
+  return ageMs <= 15 * 60 * 1000 ? "new" : null;
+}
+
+/**
+ * Alert document id (unchanged): one alert per report and level; an overdue
+ * report gets one reminder per clock hour while it stays open.
+ */
+export function moderationAlertId(reportId: string, level: ModerationAlertLevel, nowMs: number): string {
+  return `${reportId}_${level}_${level === "overdue" ? Math.floor(nowMs / HOUR_MS) : "once"}`;
+}
+
+export type ModerationDeadlineSweepStats = {
+  /** Report documents read. */
+  scanned: number;
+  /** Reports that are due for an alert at `now`. */
+  due: number;
+  /** Alert documents created by this run. */
+  created: number;
+  /** Alerts that already existed and were left untouched. */
+  existing: number;
+  pages: number;
+  /** True when the composite index was missing and the status-only scan ran. */
+  usedFallback: boolean;
+  /** True when the time budget ended the run before the last page. */
+  truncated: boolean;
+};
+
+/**
+ * One deadline sweep (AUD-14).
+ *
+ * The previous run read the newest 150 reports of any kind, so an open Bamboo
+ * report older than the 150 newest documents never got its deadline alert, and
+ * it rewrote every alert it touched (`unread: true`, `createdAt`) every
+ * 15 minutes. Now:
+ *  - only open Bamboo reports old enough for the first deadline alert are
+ *    read, by source and status, oldest first, page after page until none is
+ *    left. Every writer sets `deadlineAt = createdAt + 24 h`, so the age bound
+ *    is the "20 h" alert of that deadline; a legacy report without
+ *    `deadlineAt` is covered by the same query.
+ *  - an alert is created only when it does not exist yet (`create`, never
+ *    `set`): the admin app's read state is never touched and two overlapping
+ *    runs cannot produce two alerts or reset one.
+ * The "new" alert is written by reportBambooContent in the report's own
+ * transaction; a report that young is not read here.
+ */
+export async function runCommunityModerationDeadlineSweep(
+  firestore: Firestore,
+  options: { nowMs?: number; pageSize?: number; budgetMs?: number } = {},
+): Promise<ModerationDeadlineSweepStats> {
+  const nowMs = options.nowMs ?? Date.now();
+  const pageSize = options.pageSize ?? DEADLINE_PAGE_SIZE;
+  const budgetMs = options.budgetMs ?? DEADLINE_SWEEP_BUDGET_MS;
+  const startedAt = Date.now();
+  const reports = firestore.collection("reports");
+  const alerts = firestore.collection("moderation_alerts");
+  const cutoff = Timestamp.fromMillis(nowMs - FIRST_ALERT_AGE_MS);
+  const stats: ModerationDeadlineSweepStats = {
+    scanned: 0, due: 0, created: 0, existing: 0, pages: 0, usedFallback: false, truncated: false,
+  };
+
+  const alertPage = async (docs: QueryDocumentSnapshot[]) => {
+    stats.pages += 1;
+    stats.scanned += docs.length;
+    const wanted = new Map<string, Record<string, unknown>>();
+    for (const doc of docs) {
       const data = record(doc.data());
-      if (!["bamboo_post", "bamboo_comment"].includes(text(data.source, 80))) continue;
-      if (!["pending", "reviewing"].includes(text(data.status, 40))) continue;
+      if (!isQueueSource(data.source)) continue;
+      if (!(OPEN_STATUSES as readonly string[]).includes(text(data.status, 40))) continue;
       const createdAt = timestampMs(data.createdAt);
       const deadline = timestampMs(data.deadlineAt) ?? (createdAt == null ? null : createdAt + 24 * HOUR_MS);
-      if (deadline == null) continue;
-      const ageMs = now - (createdAt ?? now);
-      const level = now >= deadline ? "overdue" : ageMs >= 23 * HOUR_MS ? "23h" : ageMs >= 20 * HOUR_MS ? "20h" : ageMs <= 15 * 60 * 1000 ? "new" : null;
-      if (level == null) continue;
-      const alertRef = firestore.collection("moderation_alerts").doc(`${doc.id}_${level}_${level === "overdue" ? Math.floor(now / HOUR_MS) : "once"}`);
-      batch.set(alertRef, {
+      const level = moderationAlertLevel(nowMs, createdAt, deadline);
+      if (level == null || level === "new" || deadline == null) continue;
+      wanted.set(moderationAlertId(doc.id, level, nowMs), {
         reportId: doc.id, level, dataPartition: partition(data.dataPartition),
         deadlineAt: moderationAlertDeadline(data.deadlineAt, deadline),
         createdAt: FieldValue.serverTimestamp(), unread: true,
-      }, { merge: true });
+      });
     }
-    await batch.commit();
+    stats.due += wanted.size;
+    if (wanted.size === 0) return;
+    const present = await firestore.getAll(...[...wanted.keys()].map((id) => alerts.doc(id)));
+    const missing = present.filter((snapshot) => !snapshot.exists).map((snapshot) => snapshot.id);
+    stats.existing += wanted.size - missing.length;
+    if (missing.length === 0) return;
+    const batch = firestore.batch();
+    for (const id of missing) batch.create(alerts.doc(id), wanted.get(id) as Record<string, unknown>);
+    try {
+      await batch.commit();
+      stats.created += missing.length;
+    } catch (error) {
+      if (!isAlreadyExists(error)) throw error;
+      // An overlapping run created some of them first: keep its documents.
+      for (const id of missing) {
+        try {
+          await alerts.doc(id).create(wanted.get(id) as Record<string, unknown>);
+          stats.created += 1;
+        } catch (inner) {
+          if (!isAlreadyExists(inner)) throw inner;
+          stats.existing += 1;
+        }
+      }
+    }
+  };
+
+  const outOfTime = () => {
+    if (Date.now() - startedAt < budgetMs) return false;
+    stats.truncated = true;
+    return true;
+  };
+
+  // Primary: reports(source ASC, status ASC, createdAt ASC).
+  const sweepIndexed = async () => {
+    for (const source of QUEUE_SOURCES) {
+      for (const status of OPEN_STATUSES) {
+        let cursor: QueryDocumentSnapshot | null = null;
+        for (;;) {
+          if (outOfTime()) return;
+          let query = reports.where("source", "==", source).where("status", "==", status)
+            .where("createdAt", "<=", cutoff).orderBy("createdAt", "asc").limit(pageSize);
+          if (cursor) query = query.startAfter(cursor);
+          const page = await query.get();
+          if (page.empty) break;
+          await alertPage(page.docs);
+          cursor = page.docs[page.docs.length - 1];
+          if (page.size < pageSize) break;
+        }
+      }
+    }
+  };
+
+  // Fallback while that index is not deployed: every open report by status
+  // (single-field index), filtered in memory. More reads, same alerts.
+  const sweepByStatus = async () => {
+    for (const status of OPEN_STATUSES) {
+      let cursor: string | null = null;
+      for (;;) {
+        if (outOfTime()) return;
+        let query = reports.where("status", "==", status).orderBy(FieldPath.documentId()).limit(pageSize);
+        if (cursor) query = query.startAfter(cursor);
+        const page = await query.get();
+        if (page.empty) break;
+        await alertPage(page.docs);
+        cursor = page.docs[page.docs.length - 1].id;
+        if (page.size < pageSize) break;
+      }
+    }
+  };
+
+  try {
+    await sweepIndexed();
+  } catch (error) {
+    if (!isMissingIndex(error)) throw error;
+    logger.error("communityModeration.deadlines: composite index reports(source,status,createdAt) missing, scanning by status", {
+      error: String(error),
+    });
+    stats.usedFallback = true;
+    await sweepByStatus();
+  }
+  return stats;
+}
+
+// The schedule persists queue alerts for the admin app. It never makes an
+// automated moderation decision: reports remain human-reviewed.
+export function createCommunityModerationDeadlineSchedule(firestore: Firestore) {
+  return onSchedule(MODERATION_DEADLINE_SCHEDULE_OPTIONS, async () => {
+    const stats = await runCommunityModerationDeadlineSweep(firestore);
+    if (stats.truncated) {
+      logger.error("communityModeration.deadlines: time budget reached before the last page", stats);
+    } else {
+      logger.info("communityModeration.deadlines: sweep finished", stats);
+    }
   });
 }

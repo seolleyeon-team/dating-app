@@ -8,6 +8,7 @@ import { loadCampusLifeZoneEnforced } from "../campusLifeZoneActivation";
 import { Candidate, checkGroupConstraints, groupCommonDateKeys } from "./matching";
 import { normalizeLegacyMeetingStatus } from "./legacyDepositStatus";
 import { notifyBlindMeeting } from "./notifications";
+import { planSeatRelease } from "./seatRelease";
 import {
   ApplicationDoc,
   appendSystemMessage,
@@ -27,7 +28,7 @@ import {
   kstDayOf,
 } from "./types";
 
-type Vacancy = { userId: string; team: "teamA" | "teamB" };
+type Vacancy = { userId: string; team: "teamA" | "teamB"; gender: Candidate["gender"] };
 type PartyUnit = { members: Candidate[]; appliedAtMs: number; partyId: string };
 
 function futureCommonDates(members: Candidate[]): string[] {
@@ -77,10 +78,7 @@ function assignParty(
   const available = [...vacancies];
   const assignments = new Map<string, Candidate>();
   for (const member of unit.members) {
-    const index = available.findIndex((seat) => {
-      const old = roster.get(seat.userId);
-      return old != null && old.gender === member.gender;
-    });
+    const index = available.findIndex((seat) => seat.gender === member.gender);
     if (index < 0) return null;
     const [seat] = available.splice(index, 1);
     assignments.set(seat.userId, member);
@@ -90,7 +88,12 @@ function assignParty(
   const members = [...next.values()];
   const commonDates = futureCommonDates(members);
   if (commonDates.length === 0) return null;
-  if (checkGroupConstraints(members, commonDates[0], alcoholFree, 6, campusLifeZoneEnforced).length > 0) {
+  // A vacated seat whose account no longer exists is not in the roster, so
+  // the group is short until it is filled too; the 3M+3F size/balance check
+  // applies once all six seats are known. Each replacement takes a seat of
+  // its own gender, so the balance cannot drift in between.
+  const expectedSize = members.length === 6 ? 6 : undefined;
+  if (checkGroupConstraints(members, commonDates[0], alcoholFree, expectedSize, campusLifeZoneEnforced).length > 0) {
     return null;
   }
   return { assignments, commonDates };
@@ -100,67 +103,35 @@ function assignParty(
 export async function leaveBlindMeeting(params: { meetingId: string; userId: string }): Promise<void> {
   const firestore = db();
   const policy = await loadPolicy();
-  const meetingRef = firestore.collection(BLIND_MEETING_COLLECTIONS.meetings).doc(params.meetingId);
-  const participantRef = meetingRef.collection(BLIND_MEETING_COLLECTIONS.participants).doc(params.userId);
   await firestore.runTransaction(async (tx) => {
-    const [meetingSnap, participantSnap] = await Promise.all([tx.get(meetingRef), tx.get(participantRef)]);
-    if (!meetingSnap.exists || !participantSnap.exists) throw new HttpsError("not-found", "참가 중인 미팅을 찾을 수 없어요.");
-    const meeting = meetingSnap.data() ?? {};
-    if (!asStrArray(meeting.participantIds).includes(params.userId)) throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
-    const status = String(participantSnap.data()?.serverStatus ?? "");
-    if (status !== "confirmed") throw new HttpsError("failed-precondition", "현재는 미팅에서 나갈 수 없어요.");
-    const roomId = String(meeting.groupChatId ?? "");
-    if (!roomId) throw new HttpsError("failed-precondition", "채팅방을 찾을 수 없어요.");
-    const roomRef = firestore.collection("chat_rooms").doc(roomId);
-    const roomSnap = await tx.get(roomRef);
-    const room = roomSnap.data() ?? {};
-    const memberIds = asStrArray(room.participantIds).filter((uid) => uid !== params.userId);
-    const info = { ...(room.participantInfo as Record<string, unknown> ?? {}) };
-    const nickname = (info[params.userId] as Record<string, unknown> | undefined)?.nickname;
-    const leaveMessage = `${typeof nickname === "string" && nickname.trim().length > 0 ? nickname.trim() : "참가자 한 분"}님이 나갔습니다. 설레연이 곧 대타를 구해서 초대할게요.`;
-    delete info[params.userId];
-    const messageRef = roomRef.collection("messages").doc();
-    const deadline = meeting.replacementSearchDeadlineAt instanceof Timestamp
-      ? meeting.replacementSearchDeadlineAt
-      : Timestamp.fromMillis(Date.now() + policy.replacementSearchWindowMs);
-    tx.set(participantRef, {
-      status: PARTICIPANT_STATUS_TO_APP.cancelled,
-      serverStatus: "cancelled",
-      leftByUser: true,
-      replacementSearchActive: true,
-      leftAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    tx.set(meetingRef, {
-      replacementSearchActive: true,
-      replacementSearchDeadlineAt: deadline,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    tx.set(roomRef, {
-      participantIds: memberIds,
-      participantInfo: info,
-      lastMessage: leaveMessage,
-      lastMessageAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    tx.create(messageRef, {
-      senderId: "system",
-      type: "system",
-      text: leaveMessage,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    // The seat release itself is shared with the account-deletion cleanup
+    // (seatRelease.ts); only the refusals are specific to the callable.
+    const plan = await planSeatRelease(tx, firestore, {
+      meetingId: params.meetingId,
+      userId: params.userId,
+      replacementSearchWindowMs: policy.replacementSearchWindowMs,
+      mode: "leave",
     });
-    tx.set(firestore.collection(BLIND_MEETING_COLLECTIONS.applications).doc(params.userId), {
-      status: PARTICIPANT_STATUS_TO_APP.cancelled,
-      serverStatus: "cancelled",
-      stage: "cancelled",
-      open: false,
-      meetingId: null,
-      leftMeetingAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
+    switch (plan.refusal) {
+      case null:
+        plan.write();
+        return;
+      case "not_found":
+        throw new HttpsError("not-found", "참가 중인 미팅을 찾을 수 없어요.");
+      case "not_participant":
+        throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
+      case "not_confirmed":
+        throw new HttpsError("failed-precondition", "현재는 미팅에서 나갈 수 없어요.");
+      case "no_room":
+        throw new HttpsError("failed-precondition", "채팅방을 찾을 수 없어요.");
+    }
   });
   await fillBlindMeetingVacancies(params.meetingId);
+}
+
+/** Canonical seat gender recorded on a participant document / the meeting snapshot. */
+function recordedSeatGender(value: unknown): Candidate["gender"] | null {
+  return value === "male" || value === "female" ? value : null;
 }
 
 /**
@@ -203,13 +174,26 @@ export async function fillBlindMeetingVacancies(meetingId: string): Promise<numb
   const [meeting, policy, applications] = await Promise.all([loadMeeting(meetingId), loadPolicy(), loadAllOpenApplications()]);
   if (!meeting.raw.replacementSearchActive || replacementSearchIsStale(meeting.raw)) return 0;
   const participantSnap = await db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId).collection(BLIND_MEETING_COLLECTIONS.participants).get();
-  const vacancies: Vacancy[] = participantSnap.docs
-    .filter((doc) => doc.data()?.replacementSearchActive === true && doc.data()?.serverStatus === "cancelled")
-    .map((doc) => ({ userId: doc.id, team: doc.data()?.team === "teamB" ? "teamB" : "teamA" }));
-  if (vacancies.length === 0) return 0;
+  const openSeatDocs = participantSnap.docs
+    .filter((doc) => doc.data()?.replacementSearchActive === true && doc.data()?.serverStatus === "cancelled");
+  if (openSeatDocs.length === 0) return 0;
   const allSeatCandidates = await Promise.all(meeting.participantIds.map((uid) => loadCandidate(uid, policy, Date.now(), Date.now())));
   const roster = new Map(allSeatCandidates.filter((c): c is Candidate => c != null).map((c) => [c.userId, c]));
-  if (roster.size !== meeting.participantIds.length) return 0;
+  // Every occupied seat must hydrate (fail closed). A vacated seat may not:
+  // account deletion removes the member's DNA and users documents (AUD-08).
+  // Such a seat is matched by the gender recorded at confirmation instead of
+  // blocking every replacement for the meeting until the deadline cancels it.
+  const openSeatIds = new Set(openSeatDocs.map((doc) => doc.id));
+  if (meeting.participantIds.some((uid) => !roster.has(uid) && !openSeatIds.has(uid))) return 0;
+  const snapshotGenders = (meeting.raw.participantGenders ?? {}) as Record<string, unknown>;
+  const vacancies: Vacancy[] = [];
+  for (const doc of openSeatDocs) {
+    const gender = roster.get(doc.id)?.gender ??
+      recordedSeatGender(doc.data()?.gender) ??
+      recordedSeatGender(snapshotGenders[doc.id]);
+    if (gender == null) return 0;
+    vacancies.push({ userId: doc.id, team: doc.data()?.team === "teamB" ? "teamB" : "teamA", gender });
+  }
   const candidateRows = await Promise.all(applications.map(async (app) => [app.userId, await loadCandidate(app.userId, policy, Date.now(), app.appliedAtMs, app.partyId, app.partyMemberIds)] as const));
   const candidateMap = new Map(candidateRows.filter((row): row is readonly [string, Candidate] => row[1] != null));
   const enforced = await loadCampusLifeZoneEnforced(db(), { unknownAs: "enforced" });

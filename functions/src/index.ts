@@ -134,10 +134,21 @@ import {
   createRespondTeamMeetingRequestFunction,
   createTeamMeetingRequestFunction,
 } from "./teamMeetingRequest";
-import { createReportAndBlockUserFunction, isSuspendedAccountData } from "./reportAndBlock";
+import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { assertActiveAccountState, requireActiveAccount } from "./accountStatePolicy";
+import {
+  assertAdultVerificationAccount,
+  planAdultIdentityClaim,
+  recordIncompleteAdultVerification,
+  requireAdultVerificationAccount,
+} from "./adultIdentityOwnership";
+import { verifyKakaoAccessTokenForApp } from "./kakaoAccessTokenVerification";
+import { kstDateKeyCompact, kstDateKeyDashed } from "./shared/kstDate";
 import { createCommunitySafetyCallables } from "./communitySafety";
 import { createSendChatTextFunction } from "./chatSafety";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
+import { sweepExpiredGoodbyePromises } from "./goodbyeAutoCompleteSweep";
+import { runWithConcurrency } from "./shared/boundedConcurrency";
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import {
   accountMessageUnread,
@@ -351,16 +362,13 @@ function buildDirectRoomId(userA: string, userB: string): string {
   return `dm_${ids[0]}_${ids[1]}`;
 }
 
+// AUD-22: one KST calendar-day rule (shared/kstDate.ts).
 function getKstDateKey(now = new Date()): string {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const y = kst.getUTCFullYear();
-  const m = String(kst.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(kst.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return kstDateKeyDashed(now);
 }
 
 function getKstCompactDateKey(now = new Date()): string {
-  return getKstDateKey(now).replace(/-/g, "");
+  return kstDateKeyCompact(now);
 }
 
 const DEFAULT_EVENT_TEAM_AVAILABILITY_SLOT_IDS = [
@@ -470,14 +478,10 @@ function firstInteger(...values: unknown[]): number | null {
 function readPhotoUrl(userData: Record<string, unknown>): string | null {
   const onboarding = readMap(userData.onboarding);
   const photoUrls = normalizeStringList(onboarding.photoUrls);
-  return (
-    photoUrls[0] ??
-    firstNonEmptyString(
-      onboarding.profileImageUrl,
-      onboarding.representativeImageUrl,
-      userData.profileImageUrl
-    )
-  );
+  // AUD-22 / B-07: onboarding.profileImageUrl and
+  // onboarding.representativeImageUrl were client-writable and no server path
+  // ever wrote them; only server-owned image fields are read.
+  return photoUrls[0] ?? firstNonEmptyString(userData.profileImageUrl);
 }
 
 function truncateText(value: string | null, maxLength = 90): string | null {
@@ -1119,12 +1123,8 @@ async function getUserDisplayInfo(userId: string): Promise<{
     "유저"
   );
 
-  const avatarUrl =
-    asStringOrNull(
-      onboarding.profileImageUrl ??
-        onboarding.representativeImageUrl ??
-        data.profileImageUrl
-    ) ?? null;
+  // AUD-22 / B-07: server-owned image field only (see readPhotoUrl).
+  const avatarUrl = asStringOrNull(data.profileImageUrl) ?? null;
 
   return {
     nickname,
@@ -1175,11 +1175,9 @@ function buildFriendProfileSnapshot(
     ? photoUrlsRaw.map((value) => asString(value)).filter((value) => value)
     : [];
 
+  // AUD-22 / B-07: server-owned image fields only (see readPhotoUrl).
   const profileImageUrl = asStringOrNull(
-    onboarding.profileImageUrl ??
-      onboarding.representativeImageUrl ??
-      (photoUrls.length > 0 ? photoUrls[0] : null) ??
-      data.profileImageUrl
+    (photoUrls.length > 0 ? photoUrls[0] : null) ?? data.profileImageUrl
   );
   const universityName = asStringOrNull(
     onboarding.university ?? data.universityName
@@ -1202,32 +1200,10 @@ function buildFriendProfileSnapshot(
 async function verifyKakaoAccessToken(
   accessToken: string
 ): Promise<{ userId: string }> {
-  const response = await fetch("https://kapi.kakao.com/v2/user/me", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  if (!response.ok) {
-    logger.warn("Kakao access token verification failed", {
-      status: response.status,
-    });
-    throw new HttpsError(
-      "unauthenticated",
-      "카카오 로그인 세션을 확인할 수 없어요."
-    );
-  }
-
-  const data = (await response.json()) as Record<string, unknown>;
-  const userId = asString(data.id ?? "").trim();
-  if (!userId) {
-    throw new HttpsError(
-      "unauthenticated",
-      "카카오 사용자 정보를 확인할 수 없어요."
-    );
-  }
-
-  return { userId };
+  // B-10: the profile endpoint alone answers for a token issued to ANY Kakao
+  // app. The token is first bound to the configured Seolleyeon app id
+  // (KAKAO_APP_ID) through Kakao's token-info endpoint; fail closed.
+  return verifyKakaoAccessTokenForApp(accessToken);
 }
 
 /**
@@ -1273,9 +1249,9 @@ async function resolveAuthedAppUser(
   // moderation suspension (decideCommunityReport writes loginDisabled /
   // isActive:false / status and revokes refresh tokens) must also stop an
   // ID token that was issued before the suspension and is still valid.
-  if (isSuspendedAccountData(data)) {
-    throw new HttpsError("permission-denied", "이용이 정지된 계정이에요.");
-  }
+  // NEW-24: one shared classifier (accountStatePolicy.ts) — suspended, banned,
+  // withdrawn (deletion in progress) and inactive accounts are all refused.
+  assertActiveAccountState(data);
   const studentEmail = asNonEmptyString(data.studentEmail)?.toLowerCase() ?? "";
   const isStudentVerified = data.isStudentVerified === true;
   if (!isStudentVerified || !studentEmail.endsWith("@yonsei.ac.kr")) {
@@ -1763,7 +1739,14 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
       return {
         granted: false,
         alreadyGranted: true,
-        heartBalance: Number(existingData.heartBalanceAfter ?? 0),
+        // AUD-25: a replayed grant used to answer with the balance recorded
+        // when the purchase was first granted. Hearts spent (or refunded)
+        // since then made that a stale number reported as success, and the
+        // client shows it as the balance. The user document read by this
+        // same transaction is the committed balance.
+        heartBalance: userSnap.exists
+          ? heartBalanceFromSnapshot(userSnap)
+          : Number(existingData.heartBalanceAfter ?? 0),
       };
     }
 
@@ -2899,6 +2882,9 @@ export const sendStudentVerificationEmail = onCall(
     if (!userSnap.exists || asNonEmptyString(userData.kakaoUserId) !== uid) {
       throw new HttpsError("permission-denied", "로그인 세션을 다시 확인해주세요.");
     }
+    // NEW-24: verification recovery stays open to an unverified account, not
+    // to a suspended, banned or withdrawn one.
+    assertActiveAccountState(userData);
     // An account holds one mailbox. Completion rejects a different one anyway;
     // refusing here keeps a doomed request from reserving someone else's mailbox.
     const storedStudentEmail = asNonEmptyString(userData.studentEmail);
@@ -3157,6 +3143,11 @@ export const recordTermsAcceptance = onCall(
         { detail: "identity_conflict" }
       );
     }
+    // NEW-24: re-consent does not need student verification, but it is not
+    // open to a suspended, banned or withdrawn account.
+    assertActiveAccountState(
+      (userSnapshot.data() ?? {}) as Record<string, unknown>
+    );
 
     // Same validator as the pre-auth path (contract §4): fail closed, optional
     // consents default to false, unknown document ids are ignored.
@@ -3220,8 +3211,9 @@ async function fetchPortOneIdentityVerification(
   if (!response.ok) {
     logger.warn("PortOne identity verification lookup failed", {
       status: response.status,
-      identityVerificationId,
-      body: parsed,
+      // AUD-11: neither the verification session id nor the provider body
+      // (which can echo customer data) is logged.
+      errorType: isRecord(parsed) ? asString(parsed.type ?? "", "") : "",
     });
     throw new HttpsError(
       "failed-precondition",
@@ -3239,52 +3231,11 @@ async function fetchPortOneIdentityVerification(
   return readPortOneVerificationPayload(parsed);
 }
 
-async function assertIdentityVerificationNotReused(
-  uid: string,
-  identityVerificationId: string
-): Promise<void> {
-  const reused = await db
-    .collection("userPrivateVerifications")
-    .where("identityVerificationId", "==", identityVerificationId)
-    .limit(1)
-    .get();
-
-  if (!reused.empty && reused.docs[0].id !== uid) {
-    throw new HttpsError(
-      "already-exists",
-      "이미 다른 계정에 연결된 본인인증 세션입니다."
-    );
-  }
-}
-
-async function assertUniqueIdentityNotReused(
-  uid: string,
-  ciHash: string | null,
-  diHash: string | null,
-  uniqueKeyHash: string | null
-): Promise<void> {
-  const checks = [
-    ["ciHash", ciHash],
-    ["diHash", diHash],
-    ["uniqueKeyHash", uniqueKeyHash],
-  ] as const;
-
-  for (const [field, value] of checks) {
-    if (!value) continue;
-    const snap = await db
-      .collection("userPrivateVerifications")
-      .where(field, "==", value)
-      .limit(1)
-      .get();
-    if (!snap.empty && snap.docs[0].id !== uid) {
-      throw new HttpsError(
-        "already-exists",
-        "이미 다른 계정에 연결된 본인인증 정보입니다."
-      );
-    }
-  }
-}
-
+// AUD-11: the "is this identity (or this verification session) already bound
+// to another account" decision used to be two plain queries run BEFORE the
+// transaction below, so two accounts verifying one person concurrently both
+// passed. It is now an ownership claim read and written inside that
+// transaction (adultIdentityOwnership.ts).
 export const verifyAdultIdentityAfterLogin = onCall(
   withAppCheck({ secrets: [PORTONE_API_SECRET] }),
   async (request) => {
@@ -3318,7 +3269,10 @@ export const verifyAdultIdentityAfterLogin = onCall(
       );
     }
 
-    await assertIdentityVerificationNotReused(uid, identityVerificationId);
+    // NEW-24 / AUD-11: an existing, active, production account only — checked
+    // before the provider is contacted or anything is written, and again
+    // inside the transaction.
+    await requireAdultVerificationAccount(db, uid);
 
     const verification = isEmulator && isMock
       ? {
@@ -3336,15 +3290,11 @@ export const verifyAdultIdentityAfterLogin = onCall(
 
     const status = asString(verification.status, "");
     if (status !== "VERIFIED") {
-      await db.collection("users").doc(uid).set(
-        {
-          adultVerified: false,
-          realNameVerified: false,
-          registrationStatus: "adult_verification_required",
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      // AUD-11: an incomplete verification is evidence of nothing. It used to
+      // write adultVerified:false unconditionally, which downgraded an
+      // already-verified account (and created a users document for a session
+      // that had none).
+      await recordIncompleteAdultVerification(db, uid);
       throw new HttpsError(
         "failed-precondition",
         "완료된 본인인증 결과가 아니에요."
@@ -3406,8 +3356,6 @@ export const verifyAdultIdentityAfterLogin = onCall(
     const uniqueKeyHash = sha256Hex(uniqueKey);
     const adult = isAdultByKoreanYear(birthYear);
 
-    await assertUniqueIdentityNotReused(uid, ciHash, diHash, uniqueKeyHash);
-
     const userRef = db.collection("users").doc(uid);
     const privateRef = db.collection("userPrivateVerifications").doc(uid);
     const now = FieldValue.serverTimestamp();
@@ -3421,6 +3369,17 @@ export const verifyAdultIdentityAfterLogin = onCall(
           "사용자 계정을 찾을 수 없어요."
         );
       }
+      assertAdultVerificationAccount(
+        (userSnap.data() ?? {}) as Record<string, unknown>
+      );
+      // AUD-11: claim the identity and this verification session in the same
+      // transaction that records them (reads here, writes below). A different
+      // account holding any of them aborts the transaction before any write.
+      const identityClaim = await planAdultIdentityClaim(db, tx, {
+        uid,
+        previous: previousVerificationSnap.data(),
+        next: { ciHash, diHash, uniqueKeyHash, identityVerificationId },
+      });
 
       const previousPhoneHash = asNonEmptyString(
         (previousVerificationSnap.data() as Record<string, unknown> | undefined)
@@ -3433,6 +3392,7 @@ export const verifyAdultIdentityAfterLogin = onCall(
         tx.delete(verifiedPhoneHashIndexOwnerRef(previousPhoneHash, uid));
       }
 
+      identityClaim.apply(tx);
       tx.set(
         privateRef,
         {
@@ -4872,24 +4832,45 @@ export const onBambooPostLikeCreated = onDocumentCreated(
       return;
     }
 
-    await sendPushToUsers([postOwnerUid], {
-      title: "내 글에 좋아요가 눌렸어요",
-      body: "누군가가 회원님의 글을 좋아합니다.",
-      data: {
+    // AUD-25: Firestore triggers are delivered at least once, and a redelivery
+    // used to push and write a second notification. The idempotency anchor is
+    // a digest of the delivery's own event id — stable across redeliveries of
+    // one like, different for a later like. It must NOT be derived from the
+    // like document id: that id is the liker's uid, and the recipient can read
+    // their notification ids (P0-3).
+    const likeEventKey = event.id
+      ? buildNotificationIdempotencyKey([
+          "community_post_like",
+          sha256Hex(`bamboo_post_like:${event.id}`).slice(0, 32),
+        ])
+      : "";
+
+    await sendPushOnce(
+      [postOwnerUid],
+      {
+        title: "내 글에 좋아요가 눌렸어요",
+        body: "누군가가 회원님의 글을 좋아합니다.",
+        data: {
+          type: "community_post_like",
+          postId,
+        },
+      },
+      likeEventKey
+    );
+
+    await createInAppNotification(
+      postOwnerUid,
+      {
         type: "community_post_like",
+        title: "내 글에 좋아요가 눌렸어요",
+        body: "누군가가 회원님의 글을 좋아합니다.",
+        deeplinkType: "community_post",
+        deeplinkId: postId,
+        actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
         postId,
       },
-    });
-
-    await createInAppNotification(postOwnerUid, {
-      type: "community_post_like",
-      title: "내 글에 좋아요가 눌렸어요",
-      body: "누군가가 회원님의 글을 좋아합니다.",
-      deeplinkType: "community_post",
-      deeplinkId: postId,
-      actorName: BAMBOO_ANONYMOUS_ACTOR_NAME,
-      postId,
-    });
+      likeEventKey || undefined
+    );
 
     logger.info("Community post like push + in-app notification sent", {
       postId,
@@ -5033,28 +5014,42 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
   {
     schedule: "every 15 minutes",
     timeZone: "Asia/Seoul",
+    // AUD-12: was the default 60 s. The sweep stops itself well before this.
+    timeoutSeconds: 300,
   },
   async () => {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const cutoffTimestamp = Timestamp.fromDate(cutoff);
 
     logger.info("autoCompleteExpiredGoodbyeSafetyStamps started", {
       cutoff: cutoff.toISOString(),
     });
 
-    const promisesSnap = await db
-      .collectionGroup("promises")
-      .where("meetupCompletedAt", "<=", cutoffTimestamp)
-      .get();
+    // AUD-12: paged, watermark-bounded scan with bounded parallelism (see
+    // goodbyeAutoCompleteSweep.ts) instead of one unpaginated read of every
+    // promise ever stamped, processed one at a time.
+    const sweep = await sweepExpiredGoodbyePromises({
+      firestore: db,
+      cutoff,
+      onFailure: (promiseDoc, error) => {
+        logger.error("Failed to auto-complete expired goodbye safety stamp", {
+          roomId: promiseDoc.ref.parent.parent?.id ?? null,
+          promiseId: promiseDoc.id,
+          error,
+        });
+      },
+      processPromise: async (promiseDoc) => {
+        const roomRef = promiseDoc.ref.parent.parent;
+        if (!roomRef) return "skipped";
+        // Only an in_progress promise can be auto-completed, and a promise
+        // that left in_progress never returns to it with the same
+        // meetupCompletedAt: skip the transaction for everything else.
+        if (asString(promiseDoc.get("status"), "").toLowerCase() !== "in_progress") {
+          return "skipped";
+        }
 
-    for (const promiseDoc of promisesSnap.docs) {
-      const roomRef = promiseDoc.ref.parent.parent;
-      if (!roomRef) continue;
+        const roomId = roomRef.id;
+        const promiseId = promiseDoc.id;
 
-      const roomId = roomRef.id;
-      const promiseId = promiseDoc.id;
-
-      try {
         const result = await db.runTransaction(async (tx) => {
           const latestPromiseSnap = await tx.get(promiseDoc.ref);
           if (!latestPromiseSnap.exists) return null;
@@ -5194,7 +5189,7 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
         });
 
         if (!result) {
-          continue;
+          return "skipped";
         }
 
         for (const userId of result.missingUserIds) {
@@ -5232,17 +5227,13 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
             },
           });
         }
-      } catch (error) {
-        logger.error("Failed to auto-complete expired goodbye safety stamp", {
-          roomId,
-          promiseId,
-          error,
-        });
-      }
-    }
+        return "completed";
+      },
+    });
 
     logger.info("autoCompleteExpiredGoodbyeSafetyStamps finished", {
-      processedCount: promisesSnap.size,
+      processedCount: sweep.scanned,
+      ...sweep,
     });
   }
 );
@@ -5500,6 +5491,10 @@ export const sendUpcomingPromiseReminderPushes = onSchedule(
 // =============================================================================
 // 12) 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
 // =============================================================================
+const DAILY_DIGEST_DELIVERY_CONCURRENCY = 10;
+/** Leaves room inside timeoutSeconds for the room scan and in-flight sends. */
+const DAILY_DIGEST_TIME_BUDGET_MS = 420_000;
+
 export const sendDailyUnreadChatDigests = onSchedule(
   {
     schedule: "0 13 * * *",
@@ -5507,9 +5502,13 @@ export const sendDailyUnreadChatDigests = onSchedule(
     cpu: "gcf_gen1",
     concurrency: 1,
     maxInstances: 1,
+    // AUD-12: was the default 60 s, which one-user-at-a-time delivery
+    // exhausts at a few hundred recipients.
+    timeoutSeconds: 540,
   },
   async () => {
     const digestDate = getKstDateKey();
+    const digestStartedAtMs = Date.now();
 
     logger.info("sendDailyUnreadChatDigests started", { digestDate });
 
@@ -5525,7 +5524,14 @@ export const sendDailyUnreadChatDigests = onSchedule(
     });
 
     const notificationId = chatDigestNotificationId(digestDate);
-    for (const [userId, target] of targets) {
+    // AUD-12: bounded parallel delivery inside a time budget. Each recipient
+    // is independent and both delivery steps are idempotent per user and day,
+    // so parallel lanes (and a later re-run) cannot notify anyone twice.
+    const digestRecipients = [...targets];
+    const digestHandled = await runWithConcurrency(
+      digestRecipients,
+      DAILY_DIGEST_DELIVERY_CONCURRENCY,
+      async ([userId, target]) => {
       try {
         const title = "읽지 않은 메시지가 있어요";
         const body = target.previewSenderName
@@ -5563,7 +5569,7 @@ export const sendDailyUnreadChatDigests = onSchedule(
         );
         if (!pushed && !created) {
           logger.info("Skipped chat digest: already sent today", { userId, digestDate });
-          continue;
+          return;
         }
 
         logger.info("Daily unread chat digest sent", {
@@ -5580,9 +5586,25 @@ export const sendDailyUnreadChatDigests = onSchedule(
           error,
         });
       }
+      },
+      () => Date.now() - digestStartedAtMs >= DAILY_DIGEST_TIME_BUDGET_MS
+    );
+
+    if (digestHandled < digestRecipients.length) {
+      // Never silent: these users get no digest today unless the job is run
+      // again (a re-run skips everyone already delivered).
+      logger.error("sendDailyUnreadChatDigests stopped at its time budget", {
+        digestDate,
+        handled: digestHandled,
+        notHandled: digestRecipients.length - digestHandled,
+      });
     }
 
-    logger.info("sendDailyUnreadChatDigests finished", { digestDate });
+    logger.info("sendDailyUnreadChatDigests finished", {
+      digestDate,
+      handled: digestHandled,
+      durationMs: Date.now() - digestStartedAtMs,
+    });
   }
 );
 
@@ -5766,6 +5788,9 @@ export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
   if (!callerUid) {
     throw new HttpsError("unauthenticated", "로그인이 필요해요.");
   }
+  // NEW-24: the caller must own an account document and it must be active.
+  // (Student / adult eligibility for this callable is AUD-05, not decided here.)
+  await requireActiveAccount(db, callerUid);
 
   const data = getCallableData(request);
   const rawHashes = data.contactHashes;
@@ -6136,6 +6161,8 @@ export const syncKakaoTalkFriendBlocks = onCall(
     }
 
     const currentCallerData = callerSnapshot.data() ?? {};
+    // NEW-24: no exclusion sync for a suspended, banned or withdrawn account.
+    assertActiveAccountState(currentCallerData);
     const requestedPreference = data.avoidanceEnabled;
     if (
       requestedPreference !== undefined &&

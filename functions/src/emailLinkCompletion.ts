@@ -3,6 +3,7 @@ import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { assertActiveAccountState } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 import {
   claimStudentEmailBinding,
@@ -198,6 +199,10 @@ export function createCompleteStudentEmailLinkFunction(
       }
 
       const userData = (userSnapshot.data() ?? {}) as Record<string, unknown>;
+      // NEW-24: completing a verification marks the account verified and
+      // mints its session; a suspended, banned or withdrawn account must not
+      // get either. Read inside the transaction, never from the token.
+      assertActiveAccountState(userData);
       const storedKakaoUserId = asNonEmptyString(userData.kakaoUserId);
       if (storedKakaoUserId && storedKakaoUserId !== decision.kakaoUserId) {
         throw new HttpsError(

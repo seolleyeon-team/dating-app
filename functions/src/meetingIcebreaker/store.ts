@@ -187,6 +187,26 @@ export function readPromptParticipantDoc(
   };
 }
 
+/**
+ * `optedOut` straight from the stored document.
+ *
+ * AUD-25: a decline recorded BEFORE the session is activated is a stub without
+ * meetingId / meetingType, which readPromptParticipantDoc rejects (null). Code
+ * that only looked at the parsed document therefore saw "no document" and
+ * activated the prompts the user had just declined.
+ */
+export function readPromptParticipantOptedOut(raw: unknown): boolean {
+  return isRecord(raw) && raw.optedOut === true;
+}
+
+export async function loadPromptParticipantOptedOut(
+  sessionId: string,
+  uid: string
+): Promise<boolean> {
+  const snap = await promptParticipantRef(sessionId, uid).get();
+  return snap.exists && readPromptParticipantOptedOut(snap.data());
+}
+
 export async function loadPromptParticipant(
   sessionId: string,
   uid: string

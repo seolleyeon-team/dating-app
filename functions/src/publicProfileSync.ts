@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { Firestore } from "firebase-admin/firestore";
 import { FieldValue } from "firebase-admin/firestore";
 
+import { isRestrictedAccountData } from "./accountStatePolicy";
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 
 const PUBLIC_ONBOARDING_KEYS = [
@@ -60,8 +61,32 @@ function readMap(value: unknown): Record<string, unknown> {
   return {};
 }
 
+/**
+ * Image URLs on users/{uid} that only the server can write (firestore.rules:
+ * avatar.*, top-level profileImageUrl, onboarding.avatarUrls / photoUrls are
+ * outside every client allowlist). These are the only values that may reach
+ * a public image field.
+ */
+function serverOwnedImageUrls(userData: Record<string, unknown>): Set<string> {
+  const avatar = readMap(userData.avatar);
+  const onboarding = readMap(userData.onboarding);
+  const urls = new Set<string>();
+  const approved = asString(avatar.approvedAvatarUrl);
+  if (avatar.status === "approved" && approved && isSafePublicAvatarUrl(approved)) {
+    urls.add(approved);
+  }
+  const profileImageUrl = asString(userData.profileImageUrl);
+  if (profileImageUrl && isSafePublicAvatarUrl(profileImageUrl)) {
+    urls.add(profileImageUrl);
+  }
+  for (const url of pickSafePhotoUrls(onboarding.avatarUrls)) urls.add(url);
+  for (const url of pickSafePhotoUrls(onboarding.photoUrls)) urls.add(url);
+  return urls;
+}
+
 function pickPublicOnboarding(
   onboardingRaw: unknown,
+  serverOwnedImages: ReadonlySet<string>,
 ): Record<string, unknown> | null {
   const onboarding = readMap(onboardingRaw);
   if (Object.keys(onboarding).length === 0) return null;
@@ -78,8 +103,14 @@ function pickPublicOnboarding(
   if (photoUrls.length > 0) publicOnboarding.photoUrls = photoUrls;
   if (avatarUrls.length > 0) publicOnboarding.avatarUrls = avatarUrls;
 
+  // B-07: onboarding.representativeImageUrl was writable by the profile
+  // owner, and the former check was only a deny-list of private buckets, so
+  // any external URL (an IP / metadata harvesting endpoint) was copied into
+  // the public profile and fetched by viewers. It is projected only when it
+  // repeats an image the server itself wrote for this user; it is never an
+  // independent source of a public image.
   const representative = asString(onboarding.representativeImageUrl);
-  if (representative && isSafePublicAvatarUrl(representative)) {
+  if (representative && serverOwnedImages.has(representative)) {
     publicOnboarding.representativeImageUrl = representative;
   }
 
@@ -132,7 +163,10 @@ export function buildPublicProfileFromUser(
     userData.isWithdrawn === true ||
     userData.isDeleted === true ||
     userData.isSuspended === true ||
-    userData.isActive === false;
+    userData.isActive === false ||
+    // AUD-22: a deletion in progress (`status: "deleting"`) or `isBanned`
+    // must not keep a public projection either.
+    isRestrictedAccountData(userData);
   // A member's recommendation visibility is date-scoped and resolved by the
   // daily server job. Keep today's public projection intact so a change made
   // during the day cannot retroactively remove already-issued cards.
@@ -145,7 +179,10 @@ export function buildPublicProfileFromUser(
     asString(readMap(userData.onboarding).nickname) ??
     null;
 
-  const publicOnboarding = pickPublicOnboarding(userData.onboarding);
+  const publicOnboarding = pickPublicOnboarding(
+    userData.onboarding,
+    serverOwnedImageUrls(userData),
+  );
   const photoUrl = resolvePublicPhotoUrl(userData);
   const avatar = readMap(userData.avatar);
   const approvedAvatarUrl = asString(avatar.approvedAvatarUrl);

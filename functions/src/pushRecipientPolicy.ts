@@ -1,5 +1,7 @@
 import type { Firestore } from "firebase-admin/firestore";
 
+import { isRestrictedAccountData } from "./accountStatePolicy";
+
 export type PushSkipReason =
   | "missing_user"
   | "deleted_or_suspended"
@@ -29,7 +31,9 @@ export function isInactivePushRecipient(
   if (INACTIVE_ACCOUNT_STATUSES.has(accountStatus)) return true;
 
   const status = asString(userDoc.status).toLowerCase();
-  return INACTIVE_ACCOUNT_STATUSES.has(status);
+  if (INACTIVE_ACCOUNT_STATUSES.has(status)) return true;
+  // AUD-22: banned accounts and deletions in progress were not in this list.
+  return isRestrictedAccountData(userDoc);
 }
 
 /**

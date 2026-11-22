@@ -173,3 +173,126 @@ describe("약속 수정 후 이전 도장 무효화", () => {
     assert.equal(promiseDateTimeMs("2026-01-01"), null);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B-12 — the stamp window is decided with the server clock
+// ---------------------------------------------------------------------------
+
+import {
+  SAFETY_STAMP_CLOCK_SKEW_GRACE_MS,
+  SAFETY_STAMP_GOODBYE_WINDOW_MS,
+  SAFETY_STAMP_MEETUP_CLOSE_AFTER_MS,
+  SAFETY_STAMP_MEETUP_OPEN_BEFORE_MS,
+  SAFETY_STAMP_OPENABLE_PROMISE_STATUSES,
+  evaluateSafetyStampWindow,
+} from "./safetyStamp";
+
+describe("B-12 evaluateSafetyStampWindow", () => {
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+  // 2026-11-22 19:00 KST
+  const START = Date.UTC(2026, 10, 22, 10, 0, 0);
+  const ts = (ms: number) => ({ toMillis: () => ms });
+  const meetup = (nowMs: number, promiseDateTime: unknown = ts(START)) =>
+    evaluateSafetyStampWindow({ phase: "meetup", nowMs, promiseDateTime, meetupCompletedAt: null });
+  const goodbye = (nowMs: number, meetupCompletedAt: unknown) =>
+    evaluateSafetyStampWindow({ phase: "goodbye", nowMs, promiseDateTime: ts(START), meetupCompletedAt });
+
+  it("keeps the product window: 10 minutes before to 1 hour after, plus a short skew grace", () => {
+    assert.equal(SAFETY_STAMP_MEETUP_OPEN_BEFORE_MS, 10 * MINUTE);
+    assert.equal(SAFETY_STAMP_MEETUP_CLOSE_AFTER_MS, HOUR);
+    assert.equal(SAFETY_STAMP_GOODBYE_WINDOW_MS, 24 * HOUR);
+    assert.ok(SAFETY_STAMP_CLOCK_SKEW_GRACE_MS > 0 && SAFETY_STAMP_CLOCK_SKEW_GRACE_MS <= 5 * MINUTE);
+    assert.deepEqual(SAFETY_STAMP_OPENABLE_PROMISE_STATUSES, ["confirmed", "in_progress"]);
+  });
+
+  it("accepts an arrival stamp inside the window", () => {
+    for (const offset of [-10 * MINUTE, -MINUTE, 0, 30 * MINUTE, HOUR]) {
+      assert.deepEqual(meetup(START + offset), { ok: true });
+    }
+  });
+
+  it("device clock in the future: a stamp sent days or hours before the meeting is refused", () => {
+    // The server time is what it is, whatever the phone displays.
+    for (const offset of [-3 * 24 * HOUR, -2 * HOUR, -16 * MINUTE]) {
+      assert.deepEqual(meetup(START + offset), { ok: false, reason: "too_early" });
+    }
+    assert.deepEqual(meetup(START - 10 * MINUTE - SAFETY_STAMP_CLOCK_SKEW_GRACE_MS), { ok: true });
+    assert.deepEqual(meetup(START - 10 * MINUTE - SAFETY_STAMP_CLOCK_SKEW_GRACE_MS - 1), { ok: false, reason: "too_early" });
+  });
+
+  it("device clock in the past / safety stamp expiry: a stamp after the deadline is refused", () => {
+    for (const offset of [HOUR + 6 * MINUTE, 5 * HOUR, 30 * 24 * HOUR]) {
+      assert.deepEqual(meetup(START + offset), { ok: false, reason: "too_late" });
+    }
+    assert.deepEqual(meetup(START + HOUR + SAFETY_STAMP_CLOCK_SKEW_GRACE_MS), { ok: true });
+    assert.deepEqual(meetup(START + HOUR + SAFETY_STAMP_CLOCK_SKEW_GRACE_MS + 1), { ok: false, reason: "too_late" });
+  });
+
+  it("timezone change: the decision depends only on the instant, not on how the time was written", () => {
+    const sameInstant = [
+      ts(START),
+      new Date("2026-11-22T19:00:00+09:00"),
+      new Date("2026-11-22T02:00:00-08:00"),
+      new Date("2026-11-22T10:00:00Z"),
+      START,
+    ];
+    for (const value of sameInstant) {
+      assert.deepEqual(meetup(START - 5 * MINUTE, value), { ok: true });
+      assert.deepEqual(meetup(START - 9 * HOUR, value), { ok: false, reason: "too_early" });
+      assert.deepEqual(meetup(START + 9 * HOUR, value), { ok: false, reason: "too_late" });
+    }
+  });
+
+  it("KST midnight boundary: a 00:05 KST meeting opens at 23:55 KST of the previous day", () => {
+    const midnightMeeting = Date.UTC(2026, 10, 22, 15, 5, 0); // 2026-11-23 00:05 KST
+    const previousDay2355 = Date.UTC(2026, 10, 22, 14, 55, 0); // 2026-11-22 23:55 KST
+    assert.deepEqual(meetup(previousDay2355, ts(midnightMeeting)), { ok: true });
+    assert.deepEqual(meetup(previousDay2355 - 6 * MINUTE, ts(midnightMeeting)), { ok: false, reason: "too_early" });
+    // 23:30 KST meeting stays open across midnight until 00:30 KST.
+    const lateMeeting = Date.UTC(2026, 10, 22, 14, 30, 0); // 23:30 KST
+    assert.deepEqual(meetup(Date.UTC(2026, 10, 22, 15, 20, 0), ts(lateMeeting)), { ok: true }); // 00:20 KST
+    assert.deepEqual(meetup(Date.UTC(2026, 10, 22, 15, 36, 0), ts(lateMeeting)), { ok: false, reason: "too_late" });
+  });
+
+  it("promise time change: the window follows the CURRENT promise time", () => {
+    const moved = START + 3 * 24 * HOUR;
+    const now = START + 5 * MINUTE;
+    assert.deepEqual(meetup(now, ts(START)), { ok: true });
+    assert.deepEqual(meetup(now, ts(moved)), { ok: false, reason: "too_early" });
+    assert.deepEqual(meetup(moved, ts(moved)), { ok: true });
+    assert.deepEqual(meetup(moved, ts(START)), { ok: false, reason: "too_late" });
+  });
+
+  it("fails closed when the promise has no usable time", () => {
+    for (const value of [null, undefined, "2026-11-22T10:00:00Z", {}, Number.NaN]) {
+      assert.deepEqual(
+        evaluateSafetyStampWindow({ phase: "meetup", nowMs: START, promiseDateTime: value, meetupCompletedAt: null }),
+        { ok: false, reason: "promise_time_missing" },
+      );
+    }
+  });
+
+  it("goodbye stamp: 24 hours from the SERVER-recorded meetup completion", () => {
+    const completed = START + 20 * MINUTE;
+    assert.deepEqual(goodbye(completed + MINUTE, ts(completed)), { ok: true });
+    assert.deepEqual(goodbye(completed + 24 * HOUR, ts(completed)), { ok: true });
+    assert.deepEqual(goodbye(completed + 24 * HOUR + SAFETY_STAMP_CLOCK_SKEW_GRACE_MS + 1, ts(completed)), { ok: false, reason: "too_late" });
+    assert.deepEqual(goodbye(completed + 3 * 24 * HOUR, ts(completed)), { ok: false, reason: "too_late" });
+    assert.deepEqual(goodbye(completed, null), { ok: false, reason: "meetup_not_completed" });
+  });
+});
+
+describe("B-12 submitSafetyStamp reads no client-supplied time", () => {
+  it("the callable source takes time only from the server clock and stored documents", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const source = readFileSync(resolve(__dirname, "..", "src", "safetyStamp.ts"), "utf8");
+    const body = source.slice(source.indexOf("export const submitSafetyStamp"), source.indexOf("export const SAFETY_STAMP_FOLLOW_UP_REASONS"));
+    assert.ok(body.includes("evaluateSafetyStampWindow("));
+    assert.ok(body.includes("nowMs: Date.now()"));
+    // Request fields the handler reads: ids, the phase and the opaque blob.
+    const requestFields = [...body.matchAll(/\bdata\.([A-Za-z]+)/g)].map((m) => m[1]).sort();
+    assert.deepEqual([...new Set(requestFields)], ["phase", "promiseId", "roomId", "verification"]);
+  });
+});

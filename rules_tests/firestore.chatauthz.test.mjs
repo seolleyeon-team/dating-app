@@ -260,20 +260,21 @@ test("a promise deletion card is accepted only for a promise party with the exac
 });
 
 test("a closed room accepts no client message or promise, while the active room does", async () => {
+  // The meeting time is in the server future (B-12), as the client form requires.
   await withClearedDb(seed);
   const alice = await kakaoSession(ALICE);
   await assertFails(setDoc(doc(alice, "chat_rooms", CLOSED_ROOM, "messages", "m1"), promiseRequestMessage()));
   await assertFails(
     setDoc(doc(alice, "chat_rooms", CLOSED_ROOM, "promises", "p_closed"), {
       promiseId: "p_closed", messageId: "m1", requestedBy: ALICE, requestedTo: BOB,
-      dateTime: Timestamp.now(), place: "신촌", placeCategory: "cafe", status: "requested",
+      dateTime: Timestamp.fromMillis(Date.now() + 86_400_000), place: "신촌", placeCategory: "cafe", status: "requested",
       createdAt: new Date(), updatedAt: new Date(), isEdited: false, editedAt: null, acceptedAt: null,
     })
   );
   await assertSucceeds(
     setDoc(doc(alice, "chat_rooms", ROOM, "promises", "p_open"), {
       promiseId: "p_open", messageId: "m1", requestedBy: ALICE, requestedTo: BOB,
-      dateTime: Timestamp.now(), place: "신촌", placeCategory: "cafe", status: "requested",
+      dateTime: Timestamp.fromMillis(Date.now() + 86_400_000), place: "신촌", placeCategory: "cafe", status: "requested",
       createdAt: new Date(), updatedAt: new Date(), isEdited: false, editedAt: null, acceptedAt: null,
     })
   );

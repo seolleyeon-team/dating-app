@@ -34,6 +34,7 @@ import {
   resolveAccountDeletionOwner,
   type AccountDeletionOwner,
 } from "./accountDeletionAuthorization";
+import { releaseAdultIdentityOwnership } from "./adultIdentityOwnership";
 import { kakaoIdentityHash } from "./kakaoIdentityLink";
 import { normalizeYonseiEmail } from "./studentVerificationEmail";
 
@@ -1220,6 +1221,10 @@ export function createAvatarCleanupFirestoreExecutor(
           return;
         }
         case "deleteUserPrivateVerification":
+          // AUD-11: the ownership claims are keyed by the identity hashes and
+          // carry the uid; they go with the record they protect (P1-5: no
+          // personal-data residue after deletion). Idempotent.
+          await releaseAdultIdentityOwnership(firestore, uid);
           await firestore.collection("userPrivateVerifications").doc(uid).delete();
           return;
         case "deleteVerifiedPhoneHashIndexOwner": {
