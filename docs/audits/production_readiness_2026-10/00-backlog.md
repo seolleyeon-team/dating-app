@@ -120,3 +120,38 @@ open. VERIFY means a static trace that still needs production evidence.
 | AUD-24 | Smaller client items: onboarding next buttons without an in-flight guard (keyword, profile Q&A, lifestyle), the follow-up screen does not load selectable targets, tutorial completion without progress/guard, streams created in `build()`, unbounded listeners (notifications, likes, asks), a launch from an email link never starts the app-link listener | P3 | OPEN | - |
 | AUD-25 | Smaller server items: icebreaker opt-out before activation is ignored, `purgeExpiredEmailLinkTokens` scans a fixed 500-doc window, the Bamboo like notification is not idempotent, two paid-retry responses report stale state, `notificationDispatchLog` is never purged, `sendUpcomingPromiseReminderPushes` is a no-op schedule | P3 | OPEN | - |
 | AUD-26 | The season roulette's campus-life-zone hard filter is enforced only while `recommendationConfig/current.campusLifeZoneEnforced == true`; the live value was not checked | P3 | VERIFY | Read-only check of the live config document |
+
+## Residual remediation - 2026-11-22 (source only; nothing deployed)
+
+Branch `security/residual-remediation-20261121`, stacked on PR #158. Details,
+tests, deployment order and the new findings (RES-01 … RES-24) are in
+`07-residual-remediation.md`. The rows above are left as they were written;
+this table is the current state of each item.
+
+| ID | State on 2026-11-22 | Note |
+|---|---|---|
+| NEW-24 | SOURCE FIXED / TESTS VERIFIED / DEPLOY PENDING | One account-state policy; all 72 HTTPS exports declared; 44 live callables predate the gate |
+| NEW-25 | SOURCE FIXED / TESTS VERIFIED / DEPLOY PENDING | Correction: the live source is git `94f6b0b8` and the build inputs are retrievable ("unknown tree" / "generations gone" was wrong); safe to redeploy from git |
+| AUD-01 | CONFIRMED IN PRODUCTION / INDEX DEFINED / DEPLOY PENDING | The live query fails with "requires an index" |
+| AUD-06 | SOURCE FIXED / FAKES VERIFIED / TWO-DEVICE NOT VERIFIED | |
+| AUD-08 | SOURCE FIXED / TESTS VERIFIED | Seat released like a leave; seats already left `confirmed` by past deletions are not repaired |
+| AUD-09 | SOURCE FIXED / TESTS VERIFIED | Paged recovery scan; conditional post-enqueue write |
+| AUD-11 | SOURCE FIXED / TESTS VERIFIED | Backfill optional, not run |
+| AUD-12 | SOURCE FIXED / TESTS VERIFIED (two targets) | RES-07 … RES-09 open for other schedulers; no new index |
+| AUD-14 | SOURCE FIXED / TESTS VERIFIED | Needs `reports(source, status, createdAt)` |
+| AUD-16 | SOURCE FIXED / FAKES VERIFIED / CLIENT RELEASE PENDING | |
+| AUD-17 | SOURCE FIXED / TESTS VERIFIED (20 consecutive runs) | Root cause: transaction reads issued as 13 RPCs; now in CI |
+| AUD-18 | SOURCE FIXED / CI RUN PENDING | Whole `tests/` directory, script suites, every emulator suite |
+| AUD-22 | SOURCE FIXED / TESTS VERIFIED | |
+| AUD-23 | SOURCE FIXED / HOSTING DEPLOY PENDING | Play Console fingerprint itself not re-read |
+| AUD-24 | SOURCE FIXED / FAKES VERIFIED (listed parts) | RES-22, RES-23 open |
+| AUD-25 | 5 of 6 SOURCE FIXED / TESTS VERIFIED | No-op reminder schedule and dispatch-log TTL policy: owner decision |
+| AUD-26 | REQUIRES_PRODUCT_DECISION | `recommendationConfig/current` does not exist in production: filter dormant |
+| NEW-05 / NEW-13 | 1 FIXED / 11 REQUIRES_PRODUCT_DECISION | Build-number constant follows the committed pubspec; 11 golden baselines need visual approval (edge-pixel differences only) |
+| REPORT-DEDUP | SOURCE FIXED / TESTS VERIFIED | |
+| B-06 … B-10, B-12 … B-14, B-17 … B-19 | SOURCE FIXED / TESTS VERIFIED | B-10 fails closed until `KAKAO_APP_ID` is configured |
+| B-11 | REQUIRES_PRODUCT_DECISION | RES-02 |
+| B-15, B-16 | SOURCE FIXED for the shared avatar path and six screens | Remaining call sites listed in 07 §7 |
+| B-20 | VERIFIED, no change | Firestore / Auth unenforced by documented decision; 12 debug tokens |
+| APPCHECK-E2E | LIVE NORMAL PATH NOT VERIFIED | |
+| IOS-CRASHLYTICS | CONFIRMED_OPEN | No upload-symbols phase; needs a real archive |

@@ -103,3 +103,24 @@ OPS-02: contract hardened (manifest + helper-aware guard + tests, 89 passed in
 `tests/test_functions_env_*.py` / `tests/test_deploy_functions_guarded_contract.py`).
 Remaining live drift: DEFERRED to per-function guarded redeploys (table above),
 tracked in `00-backlog.md`.
+
+## 2026-11-22 — `KAKAO_APP_ID` (manifest 31 → 32, not deployed)
+
+B-10 binds a Kakao access token to this app: `verifyKakaoAccessTokenForApp`
+(`functions/src/kakaoAccessTokenVerification.ts`) compares the `app_id` of
+Kakao's token-info endpoint with `KAKAO_APP_ID`, the numeric "앱 ID" shown in
+Kakao Developers (not the native / REST / JavaScript key, and not a secret).
+The verification fails closed when the key is missing or malformed.
+
+`scripts/functions_env_key_manifest.seolleyeon-final.json` lists the key
+since this change, so the guarded wrapper refuses the current 31-key operator
+dotenv (`ENV_KEY_MANIFEST_MISMATCH … missing: KAKAO_APP_ID`, observed with
+`--dry-run` on 2026-11-22). Before any function is deployed from a tree that
+contains this change:
+
+1. the owner supplies the value; add `KAKAO_APP_ID=<digits>` to
+   `functions/.env.seolleyeon-final`;
+2. every guarded deploy declares `--allow-add-key KAKAO_APP_ID`.
+
+The sections above describe the 31-key contract as it was deployed; they are
+left unchanged as the record of that state.
