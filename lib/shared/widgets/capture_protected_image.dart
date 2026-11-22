@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import '../utils/image_decode_size.dart';
+import '../utils/release_build_guards.dart';
 import 'profile_photo_blur.dart';
 
 enum CaptureProtectedImageShape { roundedRect, circle }
@@ -39,10 +41,7 @@ class CaptureProtectedImage extends StatelessWidget {
   final Color placeholderIconColor;
   final double placeholderIconSize;
 
-  static const _allowQaScreenCapture = bool.fromEnvironment(
-    'SEOLLEYEON_QA_ALLOW_SCREEN_CAPTURE',
-    defaultValue: false,
-  );
+  static const _allowQaScreenCapture = ReleaseBuildGuards.allowQaScreenCapture;
 
   bool get _usesNativeSecureImage =>
       !kIsWeb &&
@@ -163,12 +162,23 @@ class CaptureProtectedImage extends StatelessWidget {
   }
 
   Widget _buildFallbackImage() {
+    // Decode at the displayed size, not the source resolution: this widget
+    // backs the 48 px avatars of every list as well as full-screen photos.
+    // `Image.network` keeps the bytes and the decoded image in memory only,
+    // so nothing shown here is written to disk either way.
     Widget image = imageUrl.trim().isEmpty
         ? _buildPlaceholder()
-        : Image.network(
-            imageUrl,
-            fit: fit,
-            errorBuilder: (_, __, ___) => _buildPlaceholder(),
+        : LayoutBuilder(
+            builder: (context, constraints) => Image.network(
+              imageUrl,
+              fit: fit,
+              cacheWidth: ImageDecodeSize.widthFor(
+                box: constraints.biggest,
+                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                fit: fit,
+              ),
+              errorBuilder: (_, __, ___) => _buildPlaceholder(),
+            ),
           );
 
     if (grayscale) {

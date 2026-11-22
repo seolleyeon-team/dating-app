@@ -15,6 +15,8 @@ import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../services/onboarding_step_save_guard.dart';
+import '../widgets/onboarding_save_failure.dart';
 
 // =============================================================================
 // 색상 상수
@@ -32,7 +34,10 @@ class _AppColors {
 // 메인 화면
 // =============================================================================
 class KeywordScreen extends StatefulWidget {
-  const KeywordScreen({super.key});
+  const KeywordScreen({super.key, @visibleForTesting this.saveKeywords});
+
+  /// Test seam for the step save. Production uses [OnboardingSaveHelper].
+  final Future<void> Function(List<String> keywords)? saveKeywords;
 
   @override
   State<KeywordScreen> createState() => _KeywordScreenState();
@@ -43,7 +48,7 @@ class _KeywordScreenState extends State<KeywordScreen> {
   static const int _maxSelection = maxProfileKeywords;
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
-  bool _isSavingOnExit = false;
+  final OnboardingStepSaveGuard _saveGuard = OnboardingStepSaveGuard();
 
   bool get _canProceed => _selectedKeywords.isNotEmpty;
 
@@ -67,19 +72,22 @@ class _KeywordScreenState extends State<KeywordScreen> {
     }
   }
 
-  Future<void> _saveCurrentKeywords() async {
-    if (_isSavingOnExit) return;
-    _isSavingOnExit = true;
-    try {
-      await OnboardingSaveHelper.saveKeywords(_selectedKeywords.toList());
-    } finally {
-      _isSavingOnExit = false;
-    }
+  Future<OnboardingStepSaveOutcome> _saveCurrentKeywords() {
+    final keywords = _selectedKeywords.toList();
+    return _saveGuard.run(
+      () =>
+          (widget.saveKeywords ?? OnboardingSaveHelper.saveKeywords)(keywords),
+      tag: 'KeywordSave',
+    );
   }
 
   Future<void> _handleBack() async {
-    await _saveCurrentKeywords();
+    final outcome = await _saveCurrentKeywords();
+    // A save already running belongs to the tap that started it.
+    if (outcome == OnboardingStepSaveOutcome.alreadyRunning) return;
     if (!mounted) return;
+    // Saving on the way out is best effort: a failed save must not trap the
+    // user on this step.
     Navigator.of(context).pop();
   }
 
@@ -95,11 +103,18 @@ class _KeywordScreenState extends State<KeywordScreen> {
   }
 
   Future<void> _onSavePressed() async {
-    if (_canProceed) {
-      HapticFeedback.mediumImpact();
-      await _saveCurrentKeywords();
-      if (!mounted) return;
-      Navigator.of(context).pushNamed(RouteNames.onboardingIdealType);
+    if (!_canProceed) return;
+    HapticFeedback.mediumImpact();
+    final outcome = await _saveCurrentKeywords();
+    if (!mounted) return;
+    switch (outcome) {
+      case OnboardingStepSaveOutcome.alreadyRunning:
+        return;
+      case OnboardingStepSaveOutcome.failed:
+        await showOnboardingSaveFailure(context);
+        return;
+      case OnboardingStepSaveOutcome.saved:
+        Navigator.of(context).pushNamed(RouteNames.onboardingIdealType);
     }
   }
 

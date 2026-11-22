@@ -3,6 +3,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/app_notification.dart';
 
 class NotificationService {
+  /// Notifications are never deleted, so the list listens to the newest
+  /// [pageSize] and widens that window as the user scrolls.
+  static const int pageSize = 50;
+
+  /// Upper bound of the unread badge query. The badge only needs "how many,
+  /// up to a displayable number"; without a bound an account that never
+  /// opens its notifications keeps a listener over all of them.
+  static const int unreadCountCap = 100;
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   CollectionReference<Map<String, dynamic>> _notificationsRef(String userId) {
@@ -12,9 +21,13 @@ class NotificationService {
         .collection('notifications');
   }
 
-  Stream<List<AppNotification>> notificationsStream(String userId) {
+  Stream<List<AppNotification>> notificationsStream(
+    String userId, {
+    int limit = pageSize,
+  }) {
     return _notificationsRef(userId)
         .orderBy('createdAt', descending: true)
+        .limit(limit)
         .snapshots()
         .map((snapshot) => snapshot.docs.map(AppNotification.fromDoc).toList());
   }
@@ -22,6 +35,7 @@ class NotificationService {
   Stream<int> unreadNotificationCountStream(String userId) {
     return _notificationsRef(userId)
         .where('isRead', isEqualTo: false)
+        .limit(unreadCountCap)
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
   }

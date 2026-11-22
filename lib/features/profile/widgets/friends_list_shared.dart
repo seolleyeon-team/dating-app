@@ -6,6 +6,7 @@ import '../../../core/constants/app_colors.dart';
 
 import '../../../router/route_names.dart';
 import '../../../services/friend_service.dart';
+import '../../../shared/utils/image_decode_size.dart';
 import '../../matching/models/profile_card_args.dart';
 
 /// 친구 목록 / 친구 피커 공통 색상
@@ -337,6 +338,11 @@ class FriendAvatarWidget extends StatelessWidget {
         width: 56,
         height: 56,
         fit: BoxFit.cover,
+        // A list of 56 px avatars: decode at that size, not the source's.
+        cacheWidth: ImageDecodeSize.widthFor(
+          box: const Size(56, 56),
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        ),
         errorBuilder: (_, __, ___) => Container(
           width: 56,
           height: 56,

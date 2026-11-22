@@ -298,6 +298,13 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
   ) async => followUpChoice;
 
   @override
+  Future<List<String>> loadFollowUpTargets(String meetingId) async => const [
+    'b1',
+    'b2',
+    'b3',
+  ];
+
+  @override
   Future<List<BlindMeetingMutualMatch>> loadMutualMatches(
     String meetingId,
   ) async => mutualMatches;

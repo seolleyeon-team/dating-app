@@ -17,6 +17,8 @@ import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../services/onboarding_step_save_guard.dart';
+import '../widgets/onboarding_save_failure.dart';
 
 // =============================================================================
 // 색상 상수
@@ -60,7 +62,12 @@ class ProfileQaScreen extends StatefulWidget {
     this.onBack,
     this.onComplete,
     this.onSkip,
+    @visibleForTesting this.saveProfileQa,
   });
+
+  /// Test seam for the step save. Production uses [OnboardingSaveHelper].
+  final Future<void> Function(List<Map<String, String>> questions)?
+  saveProfileQa;
 
   @override
   State<ProfileQaScreen> createState() => _ProfileQaScreenState();
@@ -76,7 +83,7 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
   int? _expandedIndex = 0; // 초기에 첫 번째 질문 펼침
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
-  bool _isSavingOnExit = false;
+  final OnboardingStepSaveGuard _saveGuard = OnboardingStepSaveGuard();
 
   bool get _hasAnyAnswer =>
       _questions.any((q) => (q.answer ?? '').trim().isNotEmpty);
@@ -107,24 +114,25 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _saveCurrentProfileQa() async {
-    if (_isSavingOnExit) return;
-    _isSavingOnExit = true;
-    try {
-      await OnboardingSaveHelper.saveProfileQa(
-        _questions
-            .where((q) => (q.answer ?? '').trim().isNotEmpty)
-            .map((q) => {'question': q.question, 'answer': q.answer!.trim()})
-            .toList(),
-      );
-    } finally {
-      _isSavingOnExit = false;
-    }
+  Future<OnboardingStepSaveOutcome> _saveCurrentProfileQa() {
+    final answers = _questions
+        .where((q) => (q.answer ?? '').trim().isNotEmpty)
+        .map((q) => {'question': q.question, 'answer': q.answer!.trim()})
+        .toList();
+    return _saveGuard.run(
+      () =>
+          (widget.saveProfileQa ?? OnboardingSaveHelper.saveProfileQa)(answers),
+      tag: 'ProfileQaSave',
+    );
   }
 
   Future<void> _handleBack() async {
-    await _saveCurrentProfileQa();
+    final outcome = await _saveCurrentProfileQa();
+    // A save already running belongs to the tap that started it.
+    if (outcome == OnboardingStepSaveOutcome.alreadyRunning) return;
     if (!mounted) return;
+    // Saving on the way out is best effort: a failed save must not trap the
+    // user on this step.
     if (widget.onBack != null) {
       widget.onBack!();
     } else {
@@ -151,12 +159,20 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
 
   Future<void> _goNext() async {
     HapticFeedback.mediumImpact();
-    await _saveCurrentProfileQa();
+    final outcome = await _saveCurrentProfileQa();
     if (!mounted) return;
-    if (widget.onComplete != null) {
-      widget.onComplete!.call();
-    } else {
-      Navigator.of(context).pushNamed(RouteNames.onboardingKeywords);
+    switch (outcome) {
+      case OnboardingStepSaveOutcome.alreadyRunning:
+        return;
+      case OnboardingStepSaveOutcome.failed:
+        await showOnboardingSaveFailure(context);
+        return;
+      case OnboardingStepSaveOutcome.saved:
+        if (widget.onComplete != null) {
+          widget.onComplete!.call();
+        } else {
+          Navigator.of(context).pushNamed(RouteNames.onboardingKeywords);
+        }
     }
   }
 

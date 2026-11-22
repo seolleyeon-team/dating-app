@@ -37,11 +37,13 @@ bool shouldUseDebugAppCheckProvider({
   bool isDebugSignedAndroid = false,
 }) {
   if (isWeb) return false;
-  // Store/release builds must never use debug providers unless an explicit
-  // local-test dart-define is set (FORCE_APP_CHECK_DEBUG). Play/store pipelines
-  // must not pass that define.
-  if (forceDebugProvider) return true;
-  return !isReleaseMode;
+  // B-09: a release build NEVER uses a debug provider. `forceDebugProvider`
+  // (FORCE_APP_CHECK_DEBUG) used to win here, which let a store-signed binary
+  // ship with the debug provider and an embedded debug token. It is kept as
+  // a parameter only so callers stay source compatible; non-release builds
+  // already default to the debug provider, so it changes nothing there.
+  if (isReleaseMode) return false;
+  return true;
 }
 
 /// Resolves the optional local Android debug token without ever providing a

@@ -13,6 +13,8 @@ import '../../../router/route_names.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/growing_query_window.dart';
+import '../../../shared/utils/keyed_stream.dart';
 import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 import '../models/profile_card_args.dart';
 
@@ -87,6 +89,37 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
   Stream<List<Map<String, dynamic>>>? _likesStream;
 
   final Map<String, Map<String, dynamic>?> _profileCache = {};
+
+  // The list reads the newest page of likes and widens the window at the end
+  // of the list.
+  final _window = GrowingQueryWindow(
+    pageSize: InteractionService.likesPageSize,
+  );
+  int _loadedCount = 0;
+
+  // One hydration per snapshot. `_hydrate(...)` used to be called in build(),
+  // so every rebuild started a new future and the list fell back to its
+  // loading state.
+  final _hydration =
+      SourceFuture<List<Map<String, dynamic>>, List<_HeartItem>>();
+
+  bool _onScroll(ScrollNotification notification) {
+    final uid = _currentUserId;
+    if (uid != null &&
+        notification.metrics.axis == Axis.vertical &&
+        _window.growIfNeeded(
+          loadedCount: _loadedCount,
+          extentAfter: notification.metrics.extentAfter,
+        )) {
+      setState(() {
+        _likesStream = _interactionService.watchLikesSent(
+          uid,
+          limit: _window.limit,
+        );
+      });
+    }
+    return false;
+  }
 
   @override
   void initState() {
@@ -226,7 +259,9 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
               : StreamBuilder<List<Map<String, dynamic>>>(
                   stream: _likesStream,
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                    // Keep the list while a wider window is loading.
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        !snapshot.hasData) {
                       return const Center(child: CupertinoActivityIndicator());
                     }
                     if (snapshot.hasError) {
@@ -241,78 +276,87 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
                         ),
                       );
                     }
-                    final interactions = snapshot.data ?? [];
+                    final interactions =
+                        snapshot.data ?? const <Map<String, dynamic>>[];
+                    _loadedCount = interactions.length;
                     return FutureBuilder<List<_HeartItem>>(
-                      future: _hydrate(interactions),
+                      future: _hydration.of(
+                        interactions,
+                        () => _hydrate(interactions),
+                      ),
                       builder: (context, hydSnap) {
                         final items = hydSnap.data ?? [];
-                        return CustomScrollView(
-                          physics: const BouncingScrollPhysics(),
-                          slivers: [
-                            SliverToBoxAdapter(
-                              child: _Header(
-                                onBack: widget.onBack,
-                                count: items.length,
+                        return NotificationListener<ScrollNotification>(
+                          onNotification: _onScroll,
+                          child: CustomScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            slivers: [
+                              SliverToBoxAdapter(
+                                child: _Header(
+                                  onBack: widget.onBack,
+                                  count: items.length,
+                                ),
                               ),
-                            ),
-                            if (items.isEmpty &&
-                                hydSnap.connectionState == ConnectionState.done)
-                              SliverFillRemaining(
-                                hasScrollBody: false,
-                                child: Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        CupertinoIcons.heart,
-                                        size: 48,
-                                        color: _AppColors.gray400.withValues(
-                                          alpha: 0.5,
+                              if (items.isEmpty &&
+                                  hydSnap.connectionState ==
+                                      ConnectionState.done)
+                                SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          CupertinoIcons.heart,
+                                          size: 48,
+                                          color: _AppColors.gray400.withValues(
+                                            alpha: 0.5,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      const Text(
-                                        '보낸 좋아요가 아직 없어요',
-                                        style: TextStyle(
-                                          fontFamily: _kFontFamily,
-                                          fontSize: 15,
-                                          color: _AppColors.gray500,
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          '보낸 좋아요가 아직 없어요',
+                                          style: TextStyle(
+                                            fontFamily: _kFontFamily,
+                                            fontSize: 15,
+                                            color: _AppColors.gray500,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              )
-                            else
-                              SliverPadding(
-                                padding: EdgeInsets.fromLTRB(
-                                  16,
-                                  8,
-                                  16,
-                                  bottomPadding + 24,
-                                ),
-                                sliver: SliverList(
-                                  delegate: SliverChildBuilderDelegate(
-                                    (context, index) => Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 12,
-                                      ),
-                                      child: _ProfileListItem(
-                                        item: items[index],
-                                        currentUserId: _currentUserId!,
-                                        dateText: _formatDate(
-                                          items[index].createdAt,
-                                        ),
-                                        onTap: () => _onProfileTap(
-                                          items[index].otherUserId,
-                                        ),
-                                      ),
+                                      ],
                                     ),
-                                    childCount: items.length,
+                                  ),
+                                )
+                              else
+                                SliverPadding(
+                                  padding: EdgeInsets.fromLTRB(
+                                    16,
+                                    8,
+                                    16,
+                                    bottomPadding + 24,
+                                  ),
+                                  sliver: SliverList(
+                                    delegate: SliverChildBuilderDelegate(
+                                      (context, index) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 12,
+                                        ),
+                                        child: _ProfileListItem(
+                                          item: items[index],
+                                          currentUserId: _currentUserId!,
+                                          dateText: _formatDate(
+                                            items[index].createdAt,
+                                          ),
+                                          onTap: () => _onProfileTap(
+                                            items[index].otherUserId,
+                                          ),
+                                        ),
+                                      ),
+                                      childCount: items.length,
+                                    ),
                                   ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         );
                       },
                     );

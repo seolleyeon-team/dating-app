@@ -4,7 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:kakao_flutter_sdk_common/kakao_flutter_sdk_common.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
@@ -22,6 +22,10 @@ import '../features/event/models/event_team_route_args.dart';
 import '../features/profile/widgets/friend_invite_confirmation_sheet.dart';
 import '../router/route_names.dart';
 import '../shared/layouts/main_scaffold_args.dart';
+import '../shared/utils/session_image_cache.dart';
+import 'auth_bootstrap_policy.dart';
+
+export 'auth_bootstrap_policy.dart' show AuthBootstrapPhase;
 
 /// App-wide auth state for the Yonsei-email-primary architecture.
 ///
@@ -29,9 +33,9 @@ import '../shared/layouts/main_scaffold_args.dart';
 /// Firebase session (canonical email custom token, or a grandfathered legacy
 /// session). A cached local id or a Kakao SDK session NEVER authenticates.
 class AuthProvider with ChangeNotifier {
-  final AuthService _authService = AuthService();
-  final StorageService _storageService = StorageService();
-  final FriendInviteService _friendInviteService = FriendInviteService();
+  final AuthService _authService;
+  final StorageService _storageService;
+  final FriendInviteService _friendInviteService;
 
   // One KakaoTalk hand-off reaches us through app_links (cold start + stream)
   // AND the Kakao SDK scheme stream. Accept each token once per hand-off.
@@ -43,11 +47,63 @@ class AuthProvider with ChangeNotifier {
   bool get isInitialized => _isInitialized;
 
   // ✅ 딥링크 수신(app_links)
-  final AppLinks _appLinks = AppLinks();
+  final AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSub;
   StreamSubscription<String?>? _kakaoSchemeSub;
   bool _emailLinkHandling = false; // 중복 처리 방지
   bool _emailLinkPendingAtBootstrap = false;
+
+  // The email action link this process was cold-started with. Splash /
+  // StudentVerification own that single-use code, so the general app-link
+  // listener skips exactly this link (and nothing else).
+  String? _bootstrapEmailLink;
+  bool _emailLinkBootstrapChecked = false;
+
+  // ---------------------------------------------------------------------------
+  // Launch-time session resolution (AUD-16 / B-17)
+  // ---------------------------------------------------------------------------
+  // Test seams. Production leaves them null and uses FirebaseAuth / the Kakao
+  // SDK directly.
+  final User? Function()? _firebaseUserOverride;
+  final Stream<User?> Function()? _authStateChangesOverride;
+  final Stream<String?> Function()? _kakaoSchemeLinksOverride;
+  final Duration _launchDelay;
+  final List<Duration> _bootstrapRetryDelays;
+
+  static const Duration _tokenRefreshTimeout = Duration(seconds: 8);
+  static const Duration _profileReadTimeout = Duration(seconds: 10);
+
+  AuthBootstrapPhase _bootstrapPhase = AuthBootstrapPhase.initializing;
+
+  /// Every resolution run, logout and login bumps this. A run that finds a
+  /// newer generation after an `await` is stale and must not touch state: it
+  /// could otherwise resurrect a logged-out session or sign out a new one.
+  int _bootstrapGeneration = 0;
+  Timer? _bootstrapRetryTimer;
+  int _bootstrapRetryAttempt = 0;
+  bool _launchDelayElapsed = false;
+  bool _logoutInFlight = false;
+  bool _disposed = false;
+
+  /// True while the session is authenticated from locally cached evidence
+  /// (the forced token refresh failed transiently). It is re-verified by the
+  /// bounded retry and on app resume.
+  bool _sessionVerificationDeferred = false;
+  final Completer<void> _firstBootstrap = Completer<void>();
+  final Completer<void> _authStateResolved = Completer<void>();
+  StreamSubscription<User?>? _authStateSub;
+  WidgetsBindingObserver? _resumeObserver;
+
+  /// See [AuthBootstrapPhase]. `retryableError` means "session attached but
+  /// not resolved yet": show a retry, never the login funnel.
+  AuthBootstrapPhase get bootstrapPhase => _bootstrapPhase;
+
+  /// Completes when the first launch-time resolution has finished, whatever
+  /// its outcome. Splash waits for this so both never race on the session.
+  Future<void> get bootstrapSettled => _firstBootstrap.future;
+
+  @visibleForTesting
+  bool get sessionVerificationDeferred => _sessionVerificationDeferred;
 
   UserModel? _currentUser;
   bool _isLoading = false;
@@ -78,13 +134,39 @@ class AuthProvider with ChangeNotifier {
   String? get studentEmail => _studentEmail;
   AccountSetupState get setupState => _setupState;
 
-  AuthProvider() {
+  AuthProvider({
+    AuthService? authService,
+    StorageService? storageService,
+    FriendInviteService? friendInviteService,
+    AppLinks? appLinks,
+    @visibleForTesting User? Function()? currentFirebaseUser,
+    @visibleForTesting Stream<User?> Function()? authStateChanges,
+    @visibleForTesting Stream<String?> Function()? kakaoSchemeLinks,
+    @visibleForTesting
+    Duration launchDelay = const Duration(milliseconds: 1200),
+    @visibleForTesting
+    List<Duration> bootstrapRetryDelays = defaultAuthBootstrapRetryDelays,
+  }) : _authService = authService ?? AuthService(),
+       _storageService = storageService ?? StorageService(),
+       _friendInviteService = friendInviteService ?? FriendInviteService(),
+       _appLinks = appLinks ?? AppLinks(),
+       _firebaseUserOverride = currentFirebaseUser,
+       _authStateChangesOverride = authStateChanges,
+       _kakaoSchemeLinksOverride = kakaoSchemeLinks,
+       _launchDelay = launchDelay,
+       _bootstrapRetryDelays = bootstrapRetryDelays {
     debugPrint('[Auth] ctor');
     _bootstrap();
   }
 
   Future<void> _bootstrap() async {
     debugPrint('[Auth] bootstrap start');
+
+    // Attached BEFORE the awaited resolution so a sign-out or revocation is
+    // never missed, and exactly once per provider (both starters are
+    // idempotent).
+    _startAuthStateListener();
+    _startResumeObserver();
 
     await _checkAuthStatus();
 
@@ -100,6 +182,8 @@ class AuthProvider with ChangeNotifier {
   }
 
   void _resetSessionState() {
+    // B-15: the previous account's decoded pictures go with its session.
+    clearSessionImageCache();
     _appUserId = null;
     _firebaseUid = null;
     _isAuthenticated = false;
@@ -110,42 +194,292 @@ class AuthProvider with ChangeNotifier {
     _setupState = AccountSetupState.unauthenticated;
   }
 
+  User? _attachedFirebaseUser() {
+    final override = _firebaseUserOverride;
+    return override != null ? override() : FirebaseAuth.instance.currentUser;
+  }
+
+  /// A resolution run is stale when a newer run, a logout or a login started
+  /// after it, or when another account is attached by now.
+  bool _isStaleBootstrap(int generation, String uid) {
+    return generation != _bootstrapGeneration ||
+        _attachedFirebaseUser()?.uid != uid;
+  }
+
+  /// Ends every in-flight resolution and its retry, and releases anyone
+  /// waiting on the first one. Called by logout, login and external
+  /// session changes.
+  void _supersedeBootstrap() {
+    _bootstrapGeneration += 1;
+    _bootstrapRetryTimer?.cancel();
+    _bootstrapRetryTimer = null;
+    _bootstrapRetryAttempt = 0;
+    _sessionVerificationDeferred = false;
+    _bootstrapPhase = AuthBootstrapPhase.ready;
+    _isLoading = false;
+    _isInitialized = true;
+    if (!_firstBootstrap.isCompleted) _firstBootstrap.complete();
+  }
+
+  /// Ends any in-flight resolution / retry before a logout: it must not
+  /// resurrect this session, nor sign out the next one.
+  void _beginLogout() {
+    _supersedeBootstrap();
+    _logoutInFlight = true;
+  }
+
+  void _scheduleBootstrapRetry() {
+    if (_disposed) return;
+    if (_bootstrapRetryAttempt >= _bootstrapRetryDelays.length) {
+      debugPrint('[Auth] bootstrap retry budget exhausted');
+      return;
+    }
+    final delay = _bootstrapRetryDelays[_bootstrapRetryAttempt];
+    _bootstrapRetryAttempt += 1;
+    _bootstrapRetryTimer?.cancel();
+    _bootstrapRetryTimer = Timer(delay, () {
+      _bootstrapRetryTimer = null;
+      unawaited(_checkAuthStatus());
+    });
+  }
+
+  /// Re-runs the session resolution now, with a fresh retry budget. Used by
+  /// the Splash retry button and on app resume.
+  Future<void> retryBootstrap() {
+    _bootstrapRetryAttempt = 0;
+    return _checkAuthStatus();
+  }
+
+  /// App resume: finish what a transient failure left open.
+  @visibleForTesting
+  void handleAppResumed() {
+    if (_disposed) return;
+    if (_bootstrapPhase == AuthBootstrapPhase.retryableError ||
+        _sessionVerificationDeferred) {
+      unawaited(retryBootstrap());
+    }
+  }
+
+  void _startResumeObserver() {
+    if (_resumeObserver != null) return;
+    final observer = _LifecycleResumeObserver(handleAppResumed);
+    _resumeObserver = observer;
+    WidgetsBinding.instance.addObserver(observer);
+  }
+
+  void _startAuthStateListener() {
+    if (_authStateSub != null) return;
+    final override = _authStateChangesOverride;
+    final Stream<User?> changes;
+    try {
+      changes = override != null
+          ? override()
+          : FirebaseAuth.instance.authStateChanges();
+    } catch (e) {
+      debugPrint(
+        '[Auth] auth state listener unavailable: '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+      if (!_authStateResolved.isCompleted) _authStateResolved.complete();
+      return;
+    }
+    _authStateSub = changes.listen(
+      _onFirebaseAuthState,
+      onError: (Object e) {
+        debugPrint(
+          '[Auth] auth state stream error: ${PrivacyLogUtils.errorSummary(e)}',
+        );
+        if (!_authStateResolved.isCompleted) _authStateResolved.complete();
+      },
+    );
+  }
+
+  /// Follows session changes this provider did not start itself.
+  ///
+  /// Only the two "the account I am showing is gone" transitions are acted
+  /// on. A sign-IN is deliberately ignored: the email-link flow first
+  /// attaches a temporary non-canonical session, and reacting to it here
+  /// would race the single-use completion. Sign-ins are applied explicitly
+  /// ([applyPrimaryEmailAuthCompletion], [refreshAfterExternalSignIn]).
+  void _onFirebaseAuthState(User? user) {
+    if (!_authStateResolved.isCompleted) _authStateResolved.complete();
+    if (_disposed || _logoutInFlight) return;
+
+    final holdsSession =
+        _isAuthenticated ||
+        _bootstrapPhase == AuthBootstrapPhase.retryableError;
+    if (!holdsSession) return;
+
+    final uid = user?.uid;
+    if (uid == null) {
+      // Signed out elsewhere (rejoin restriction, account deletion) or the
+      // server revoked / disabled the account and the SDK dropped the user.
+      debugPrint('[Auth] session ended outside the provider');
+      final previousAppUserId = _appUserId;
+      _supersedeBootstrap();
+      _currentUser = null;
+      _resetSessionState();
+      notifyListeners();
+      unawaited(_clearLocalIdentity(previousAppUserId));
+      return;
+    }
+    if (_isAuthenticated && uid != _appUserId) {
+      // Another account is attached without a logout() in between. Drop the
+      // previous account's identity at once so nothing stays bound to it;
+      // the explicit completion path hydrates the new account.
+      debugPrint('[Auth] attached account changed outside the provider');
+      _supersedeBootstrap();
+      _currentUser = null;
+      _resetSessionState();
+      notifyListeners();
+    }
+  }
+
+  Future<void> _clearLocalIdentity(String? appUserId) async {
+    try {
+      if (appUserId != null && appUserId.isNotEmpty) {
+        await _storageService.clearUserScopedSession(appUserId);
+      } else {
+        await _storageService.clearUserId();
+        await _storageService.clearAppUserId();
+      }
+    } catch (e) {
+      debugPrint(
+        '[Auth] local identity cleanup failed: '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
+  }
+
+  /// On the web the persisted session is restored asynchronously: reading
+  /// `currentUser` before the first auth-state event can see `null` for a
+  /// signed-in user. Native platforms resolve within a frame.
+  Future<void> _waitForInitialAuthState() async {
+    if (_authStateSub == null || _authStateResolved.isCompleted) return;
+    await _authStateResolved.future.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () {},
+    );
+  }
+
   Future<void> _checkAuthStatus() async {
+    final generation = ++_bootstrapGeneration;
+    _bootstrapRetryTimer?.cancel();
+    _bootstrapRetryTimer = null;
     _isLoading = true;
-    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!_launchDelayElapsed) {
+      await Future.delayed(_launchDelay);
+      _launchDelayElapsed = true;
+    }
+    if (generation != _bootstrapGeneration || _disposed) return;
     _isInitialized = false;
     notifyListeners();
 
+    // `transientFailure`: the attached session could not be resolved this
+    // time. It is KEPT (never signed out) and resolved again by the retry.
+    var transientFailure = false;
+    // `verificationDeferred`: resolved from cached evidence only.
+    var verificationDeferred = false;
     try {
       // Do not consume any session state while a Firebase email action link
       // is pending: Splash/StudentVerification own that single-use code.
-      if (await _hasPendingEmailLink()) {
-        _emailLinkPendingAtBootstrap = true;
-        _resetSessionState();
-        _setupState = AccountSetupState.emailVerificationPending;
-        _studentEmail = (await _storageService.getPendingStudentEmail())
-            ?.trim()
-            .toLowerCase();
-        return;
+      // Only the FIRST run asks: the initial link never changes for the
+      // lifetime of the process, so asking again would reset a session that
+      // was established from that very link.
+      if (!_emailLinkBootstrapChecked) {
+        _emailLinkBootstrapChecked = true;
+        if (await _hasPendingEmailLink()) {
+          _emailLinkPendingAtBootstrap = true;
+          _resetSessionState();
+          _setupState = AccountSetupState.emailVerificationPending;
+          _studentEmail = (await _storageService.getPendingStudentEmail())
+              ?.trim()
+              .toLowerCase();
+          return;
+        }
       }
+
+      await _waitForInitialAuthState();
+      if (generation != _bootstrapGeneration) return;
 
       // Canonical rule: only an attached Firebase session authenticates.
       // There is NO Kakao-based session restore in this client.
-      final firebaseUser = FirebaseAuth.instance.currentUser;
+      final firebaseUser = _firebaseUserOverride != null
+          ? _firebaseUserOverride()
+          : FirebaseAuth.instance.currentUser;
       if (firebaseUser == null) {
+        _currentUser = null;
         _resetSessionState();
         return;
       }
+      final uid = firebaseUser.uid;
 
       // Firestore의 대나무숲 등 사용자 상호작용 기능은 canonical 앱 세션만
       // 허용한다. 이메일 링크를 막 열어 생긴 임시 Firebase 세션은 사용자를
       // 읽을 수 있는 경우가 있어도 appSession/kakaoUserId 클레임이 없으므로
       // 글쓰기는 permission-denied가 된다. 부팅 단계에서 이를 로그인 상태로
       // 오인하지 않고, 정상적인 연세 메일 로그인 플로우로 돌려보낸다.
-      final tokenResult = await firebaseUser.getIdTokenResult(true);
-      final claims = tokenResult.claims;
-      final hasCanonicalSession =
-          claims?['appSession'] == true || claims?['kakaoUserId'] != null;
+      Map<String, dynamic>? claims;
+      var tokenRead = false;
+      try {
+        // Bounded: on a stalled network the cached evidence below is used
+        // instead of holding the launch for the SDK's own long timeout.
+        claims =
+            (await firebaseUser
+                    .getIdTokenResult(true)
+                    .timeout(_tokenRefreshTimeout))
+                .claims;
+        tokenRead = true;
+      } catch (e) {
+        if (_isStaleBootstrap(generation, uid)) return;
+        if (classifyAuthBootstrapFailure(e) ==
+            AuthBootstrapFailure.sessionInvalid) {
+          // Revoked, disabled or deleted account: the one failure that is a
+          // real sign-out.
+          debugPrint(
+            '[Auth] session rejected by the server: '
+            '${PrivacyLogUtils.errorSummary(e)}',
+          );
+          await _authService.signOutAll();
+          await _storageService.clearUserId();
+          await _storageService.clearAppUserId();
+          _currentUser = null;
+          _resetSessionState();
+          return;
+        }
+        // Transient (offline, timeout, backend hiccup). NEVER sign out on
+        // this: fall back to the cached token, whose claims are still the
+        // server-minted ones.
+        debugPrint(
+          '[Auth] token refresh failed, using cached evidence: '
+          '${PrivacyLogUtils.errorSummary(e)}',
+        );
+        verificationDeferred = true;
+        try {
+          claims = (await firebaseUser.getIdTokenResult(false)).claims;
+          tokenRead = true;
+        } catch (_) {
+          tokenRead = false;
+        }
+      }
+      if (_isStaleBootstrap(generation, uid)) return;
+
+      final bool hasCanonicalSession;
+      if (tokenRead) {
+        hasCanonicalSession =
+            claims?['appSession'] == true || claims?['kakaoUserId'] != null;
+      } else {
+        // No token at all (offline with an expired one). The session is
+        // accepted only when its uid is the appUserId this device already
+        // verified as canonical; a temporary email-link session has a
+        // different uid and can never match. Otherwise stay unresolved.
+        if (await _storageService.getAppUserId() != uid) {
+          transientFailure = true;
+          return;
+        }
+        hasCanonicalSession = true;
+      }
+      if (_isStaleBootstrap(generation, uid)) return;
       if (!hasCanonicalSession) {
         await _authService.signOutAll();
         await _storageService.clearUserId();
@@ -155,12 +489,30 @@ class AuthProvider with ChangeNotifier {
         return;
       }
 
-      final uid = firebaseUser.uid;
-      _firebaseUid = uid;
+      final Map<String, dynamic>? profile;
+      final bool rejoinRestricted;
+      try {
+        profile = await _authService
+            .getUserProfile(uid)
+            .timeout(_profileReadTimeout);
+        rejoinRestricted =
+            profile != null &&
+            await _authService
+                .isRejoinRestricted(uid)
+                .timeout(_profileReadTimeout);
+      } catch (e) {
+        // The profile could not be read. Without it neither the rejoin
+        // restriction nor the setup gate is known, so this run does not
+        // authenticate (fail closed) - but the session is kept and retried.
+        debugPrint(
+          '[Auth] profile read failed: ${PrivacyLogUtils.errorSummary(e)}',
+        );
+        transientFailure = true;
+        return;
+      }
+      if (_isStaleBootstrap(generation, uid)) return;
 
-      final profile = await _authService.getUserProfile(uid);
-
-      if (profile != null && await _authService.isRejoinRestricted(uid)) {
+      if (rejoinRestricted) {
         await _storageService.savePendingRejoinRestrictionNotice();
         await _authService.signOutAll();
         await _storageService.clearUserId();
@@ -170,6 +522,7 @@ class AuthProvider with ChangeNotifier {
         return;
       }
 
+      _firebaseUid = uid;
       _appUserId = uid;
       _isAuthenticated = true;
       await _storageService.saveAppUserId(uid);
@@ -216,10 +569,26 @@ class AuthProvider with ChangeNotifier {
       debugPrint(
         'Error checking auth status: ${PrivacyLogUtils.errorSummary(e)}',
       );
+      transientFailure = true;
     } finally {
-      _isLoading = false;
-      _isInitialized = true;
-      notifyListeners();
+      // A stale run leaves everything to whoever superseded it.
+      if (generation == _bootstrapGeneration && !_disposed) {
+        _isLoading = false;
+        _isInitialized = true;
+        final unresolved = transientFailure && !_isAuthenticated;
+        _bootstrapPhase = unresolved
+            ? AuthBootstrapPhase.retryableError
+            : AuthBootstrapPhase.ready;
+        _sessionVerificationDeferred =
+            _isAuthenticated && (transientFailure || verificationDeferred);
+        if (unresolved || _sessionVerificationDeferred) {
+          _scheduleBootstrapRetry();
+        } else {
+          _bootstrapRetryAttempt = 0;
+        }
+        if (!_firstBootstrap.isCompleted) _firstBootstrap.complete();
+        notifyListeners();
+      }
     }
   }
 
@@ -244,7 +613,11 @@ class AuthProvider with ChangeNotifier {
 
     try {
       final uri = await _appLinks.getInitialLink();
-      return uri != null && _authService.isSignInWithEmailLink(uri.toString());
+      if (uri != null && _authService.isSignInWithEmailLink(uri.toString())) {
+        _bootstrapEmailLink = uri.toString();
+        return true;
+      }
+      return false;
     } catch (e) {
       debugPrint(
         '[Auth] pending email link check failed: '
@@ -255,21 +628,29 @@ class AuthProvider with ChangeNotifier {
   }
 
   void _startEmailLinkListener() {
-    // Web and cold-start email links are owned by Splash/StudentVerification.
-    // Keeping a second consumer here causes signInWithEmailLink to race and
-    // one consumer receives an already-used action code.
-    if (kIsWeb || _emailLinkPendingAtBootstrap) return;
+    // Web links are owned by Splash/StudentVerification (the browser URL).
+    if (kIsWeb) return;
+    // Exactly one subscription per provider, however often this is called.
+    if (_linkSub != null) return;
 
-    // cold start: 앱이 꺼진 상태에서 링크로 실행된 경우
-    _appLinks.getInitialLink().then((uri) async {
-      if (uri == null) return;
-      await _handleIncomingUri(uri);
-    });
+    // cold start: 앱이 꺼진 상태에서 링크로 실행된 경우.
+    // A launch from the email action link is the one exception: Splash /
+    // StudentVerification own that single-use code, and a second consumer
+    // here would race signInWithEmailLink.
+    if (!_emailLinkPendingAtBootstrap) {
+      _appLinks.getInitialLink().then((uri) async {
+        if (uri == null) return;
+        await _handleAppLink(uri);
+      });
+    }
 
-    // warm start: 앱 켜진 상태에서 링크가 들어온 경우
+    // warm start: 앱 켜진 상태에서 링크가 들어온 경우.
+    // AUD-24: this used to be skipped together with the cold-start read
+    // after an email-link launch, so no App Link (friend / team invite, a
+    // later email link) was delivered for the rest of that session.
     _linkSub = _appLinks.uriLinkStream.listen(
       (uri) async {
-        await _handleIncomingUri(uri);
+        await _handleAppLink(uri);
       },
       onError: (e) {
         debugPrint(
@@ -279,10 +660,29 @@ class AuthProvider with ChangeNotifier {
     );
   }
 
+  /// The email-link single-consumer guard: the exact link this process was
+  /// launched with stays with Splash/StudentVerification, even when the
+  /// platform replays it on the stream. Every other link is handled.
+  bool _isBootstrapEmailLink(Uri uri) {
+    final bootstrapLink = _bootstrapEmailLink;
+    return bootstrapLink != null && uri.toString() == bootstrapLink;
+  }
+
+  Future<void> _handleAppLink(Uri uri) async {
+    if (_isBootstrapEmailLink(uri)) {
+      debugPrint('[DeepLink] launch email link left to its owner');
+      return;
+    }
+    await _handleIncomingUri(uri);
+  }
+
   /// The Kakao scheme listener stays: the friend-connection OAuth callback
   /// arrives through it. It never authenticates the account.
   void _startKakaoSchemeListener() {
-    _kakaoSchemeSub = kakaoSchemeStream.listen(
+    if (_kakaoSchemeSub != null) return;
+    final override = _kakaoSchemeLinksOverride;
+    final links = override != null ? override() : kakaoSchemeStream;
+    _kakaoSchemeSub = links.listen(
       (link) async {
         if (link == null || link.isEmpty) return;
         await _handleIncomingKakaoScheme(link);
@@ -407,6 +807,16 @@ class AuthProvider with ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _bootstrapGeneration += 1;
+    _bootstrapRetryTimer?.cancel();
+    _bootstrapRetryTimer = null;
+    _authStateSub?.cancel();
+    final resumeObserver = _resumeObserver;
+    if (resumeObserver != null) {
+      WidgetsBinding.instance.removeObserver(resumeObserver);
+    }
+    if (!_firstBootstrap.isCompleted) _firstBootstrap.complete();
     _linkSub?.cancel();
     _kakaoSchemeSub?.cancel();
     super.dispose();
@@ -843,11 +1253,13 @@ class AuthProvider with ChangeNotifier {
   Future<void> applyPrimaryEmailAuthCompletion(
     PrimaryStudentEmailAuthCompletion completion,
   ) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _attachedFirebaseUser()?.uid;
     if (uid == null || uid != completion.appUserId) {
       throw StateError('primary_email_auth_uid_mismatch');
     }
 
+    // A login supersedes any launch-time resolution still in flight.
+    _supersedeBootstrap();
     _appUserId = completion.appUserId;
     _firebaseUid = uid;
     _isAuthenticated = true;
@@ -938,6 +1350,7 @@ class AuthProvider with ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> logout() async {
+    _beginLogout();
     _isLoading = true;
     notifyListeners();
 
@@ -961,6 +1374,7 @@ class AuthProvider with ChangeNotifier {
     } catch (e) {
       debugPrint('Error during logout: ${PrivacyLogUtils.errorSummary(e)}');
     } finally {
+      _logoutInFlight = false;
       _isLoading = false;
       notifyListeners();
     }

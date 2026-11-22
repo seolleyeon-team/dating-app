@@ -26,6 +26,39 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 
+/// Test seam over the platform side of push set-up (FirebaseMessaging's
+/// static streams and instance calls, the local-notification plugin, and the
+/// Firestore reads/writes). Production never sets it.
+@visibleForTesting
+class PushPlatformHooks {
+  PushPlatformHooks({
+    required this.onMessage,
+    required this.onMessageOpenedApp,
+    required this.onTokenRefresh,
+    required this.getInitialMessage,
+    required this.requestPermission,
+    required this.authorizationStatus,
+    required this.initLocalNotifications,
+    required this.loadSettings,
+    required this.syncToken,
+    required this.openMessage,
+  });
+
+  final Stream<RemoteMessage> onMessage;
+  final Stream<RemoteMessage> onMessageOpenedApp;
+  final Stream<String> onTokenRefresh;
+  final Future<RemoteMessage?> Function() getInitialMessage;
+  final Future<AuthorizationStatus> Function() requestPermission;
+  final Future<AuthorizationStatus> Function() authorizationStatus;
+  final Future<void> Function() initLocalNotifications;
+  final Future<Map<String, bool>> Function() loadSettings;
+
+  /// Returns whether the token registration is settled (see
+  /// [PushNotificationService.syncFcmToken]).
+  final Future<bool> Function() syncToken;
+  final void Function(RemoteMessage message) openMessage;
+}
+
 class PushNotificationService with WidgetsBindingObserver {
   PushNotificationService._();
   static final PushNotificationService instance = PushNotificationService._();
@@ -60,6 +93,37 @@ class PushNotificationService with WidgetsBindingObserver {
   bool _initializing = false;
   final Set<String> _handledOpenKeys = <String>{};
 
+  // --- set-up state (AUD-16) -------------------------------------------------
+  // Listeners are attached once per process and independently of the awaited
+  // set-up below, so a failed step can no longer leave the whole session
+  // without message / tap / token-refresh handling.
+  bool _listenersAttached = false;
+  final List<StreamSubscription<Object?>> _listenerSubscriptions = [];
+  bool _localNotificationsReady = false;
+  bool _permissionStepDone = false;
+  bool _initialMessageChecked = false;
+  bool _tokenSyncSettled = false;
+  AuthorizationStatus? _lastAuthorizationStatus;
+  Timer? _setupRetryTimer;
+  int _setupRetryAttempt = 0;
+  PushPlatformHooks? _hooks;
+
+  /// Delays between automatic set-up retries. The list length is the budget;
+  /// after it is spent only an app resume retries.
+  @visibleForTesting
+  static const List<Duration> setupRetryDelays = [
+    Duration(seconds: 5),
+    Duration(seconds: 30),
+    Duration(minutes: 2),
+  ];
+
+  /// True once every set-up step has succeeded.
+  @visibleForTesting
+  bool get isSetupComplete => _initialized;
+
+  @visibleForTesting
+  bool get listenersAttached => _listenersAttached;
+
   /// Builds a stable deep-link dedupe key for open/tap handling.
   @visibleForTesting
   static String buildOpenDedupeKey(
@@ -89,7 +153,24 @@ class PushNotificationService with WidgetsBindingObserver {
   }
 
   @visibleForTesting
-  void resetForTest() {
+  void resetForTest({PushPlatformHooks? hooks}) {
+    _hooks = hooks;
+    for (final subscription in _listenerSubscriptions) {
+      subscription.cancel();
+    }
+    _listenerSubscriptions.clear();
+    if (_listenersAttached) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
+    _listenersAttached = false;
+    _localNotificationsReady = false;
+    _permissionStepDone = false;
+    _initialMessageChecked = false;
+    _tokenSyncSettled = false;
+    _lastAuthorizationStatus = null;
+    _setupRetryTimer?.cancel();
+    _setupRetryTimer = null;
+    _setupRetryAttempt = 0;
     _initialized = false;
     _initializing = false;
     _handledOpenKeys.clear();
@@ -128,20 +209,36 @@ class PushNotificationService with WidgetsBindingObserver {
   /// foreground에서 이미 표시한 알림 id (같은 알림 중복 표시 방지).
   final Set<String> _shownForegroundNotificationIds = <String>{};
 
+  bool _isFirebaseReady() {
+    if (_hooks != null) return true;
+    try {
+      Firebase.app();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Starts push handling. Safe to call any number of times.
+  ///
+  /// Order matters (AUD-16): the message / tap / token-refresh listeners are
+  /// attached FIRST and synchronously. The awaited set-up (settings read,
+  /// permission prompt, local-notification channels, token registration,
+  /// launch notification) used to run before them, so one failing step - a
+  /// Firestore read while offline was enough - left the whole session without
+  /// listeners. Each step now fails on its own and is retried.
   Future<void> initialize() async {
     if (_initialized || _initializing) {
       debugPrint('[PUSH] initialize skipped; listeners already attached');
       return;
     }
 
-    try {
-      Firebase.app();
-    } catch (_) {
+    if (!_isFirebaseReady()) {
       debugPrint('[PUSH] Firebase is not initialized; skipping setup.');
       return;
     }
 
-    if (kIsWeb) {
+    if (kIsWeb && _hooks == null) {
       debugPrint(
         '[PUSH] Web push service worker is not configured, skipping FCM init.',
       );
@@ -150,29 +247,167 @@ class PushNotificationService with WidgetsBindingObserver {
 
     _initializing = true;
     try {
-      final notificationSettings = await loadUserNotificationSettings();
-      if (notificationSettings['all'] != false) {
-        await _requestPermission();
+      _attachListeners();
+      if (await _runSetup()) {
+        _initialized = true;
+        _setupRetryAttempt = 0;
+      } else {
+        _scheduleSetupRetry();
       }
-      await _initLocalNotifications();
-      await syncFcmToken(notificationSettings: notificationSettings);
-      WidgetsBinding.instance.addObserver(this);
-      _startDeliveryContextHeartbeat();
-
-      FirebaseMessaging.onMessage.listen(_onForegroundMessage);
-      FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
-
-      final initialMessage = await _messaging.getInitialMessage();
-      if (initialMessage != null) {
-        _handleMessageTap(initialMessage);
-      }
-
-      _messaging.onTokenRefresh.listen((_) async {
-        await syncFcmToken();
-      });
-      _initialized = true;
     } finally {
       _initializing = false;
+    }
+  }
+
+  /// Attached exactly once per process: a retry, a logout / login or an
+  /// account switch never adds a second subscription.
+  void _attachListeners() {
+    if (_listenersAttached) return;
+    _listenersAttached = true;
+
+    final hooks = _hooks;
+    WidgetsBinding.instance.addObserver(this);
+    _listenerSubscriptions.add(
+      (hooks?.onMessage ?? FirebaseMessaging.onMessage).listen((message) {
+        unawaited(_onForegroundMessageGuarded(message));
+      }),
+    );
+    _listenerSubscriptions.add(
+      (hooks?.onMessageOpenedApp ?? FirebaseMessaging.onMessageOpenedApp)
+          .listen(_handleMessageTap),
+    );
+    _listenerSubscriptions.add(
+      (hooks?.onTokenRefresh ?? _messaging.onTokenRefresh).listen((_) {
+        unawaited(syncFcmToken());
+      }),
+    );
+    if (hooks == null) {
+      _startDeliveryContextHeartbeat();
+    }
+  }
+
+  Future<void> _onForegroundMessageGuarded(RemoteMessage message) async {
+    try {
+      await _onForegroundMessage(message);
+    } catch (e) {
+      debugPrint(
+        '[PUSH] foreground message ${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
+  }
+
+  /// Runs every set-up step that has not succeeded yet. A failing step never
+  /// stops the following ones. Returns whether set-up is complete.
+  Future<bool> _runSetup() async {
+    final hooks = _hooks;
+
+    // Unknown settings (offline, signed out) fall back to the defaults for
+    // the permission decision only; they are never written anywhere.
+    Map<String, bool>? notificationSettings;
+    try {
+      notificationSettings = hooks != null
+          ? await hooks.loadSettings()
+          : await loadUserNotificationSettings();
+    } catch (e) {
+      debugPrint('[PUSH] settings load ${PrivacyLogUtils.errorSummary(e)}');
+    }
+
+    if (!_localNotificationsReady) {
+      try {
+        if (hooks != null) {
+          await hooks.initLocalNotifications();
+        } else {
+          await _initLocalNotifications();
+        }
+        _localNotificationsReady = true;
+      } catch (e) {
+        debugPrint(
+          '[PUSH] local notifications ${PrivacyLogUtils.errorSummary(e)}',
+        );
+      }
+    }
+
+    if (!_permissionStepDone) {
+      if ((notificationSettings ?? defaultNotificationSettings)['all'] ==
+          false) {
+        // The user turned every notification off: no system prompt.
+        _permissionStepDone = true;
+      } else {
+        try {
+          _lastAuthorizationStatus = hooks != null
+              ? await hooks.requestPermission()
+              : (await requestSystemPermission()).authorizationStatus;
+          _permissionStepDone = true;
+        } catch (e) {
+          debugPrint('[PUSH] permission ${PrivacyLogUtils.errorSummary(e)}');
+        }
+      }
+    }
+
+    // A denied permission does not stop the registration: the token is
+    // stored either way, so delivery starts the moment the user grants it.
+    final tokenSettled = await syncFcmToken(
+      notificationSettings: notificationSettings,
+    );
+
+    if (!_initialMessageChecked) {
+      try {
+        final initialMessage = hooks != null
+            ? await hooks.getInitialMessage()
+            : await _messaging.getInitialMessage();
+        _initialMessageChecked = true;
+        if (initialMessage != null) {
+          _handleMessageTap(initialMessage);
+        }
+      } catch (e) {
+        debugPrint('[PUSH] initial message ${PrivacyLogUtils.errorSummary(e)}');
+      }
+    }
+
+    return _localNotificationsReady &&
+        _permissionStepDone &&
+        tokenSettled &&
+        _initialMessageChecked;
+  }
+
+  void _scheduleSetupRetry() {
+    if (_setupRetryAttempt >= setupRetryDelays.length) {
+      debugPrint('[PUSH] setup retry budget exhausted; waiting for resume');
+      return;
+    }
+    final delay = setupRetryDelays[_setupRetryAttempt];
+    _setupRetryAttempt += 1;
+    _setupRetryTimer?.cancel();
+    _setupRetryTimer = Timer(delay, () {
+      _setupRetryTimer = null;
+      unawaited(initialize());
+    });
+  }
+
+  /// App resume: finish an incomplete set-up, and pick up a notification
+  /// permission the user changed in the system settings meanwhile.
+  Future<void> _recoverOnResume() async {
+    if (!_listenersAttached) return;
+    if (!_initialized) {
+      _setupRetryTimer?.cancel();
+      _setupRetryTimer = null;
+      _setupRetryAttempt = 0;
+      await initialize();
+      return;
+    }
+    try {
+      final hooks = _hooks;
+      final status = hooks != null
+          ? await hooks.authorizationStatus()
+          : (await _messaging.getNotificationSettings()).authorizationStatus;
+      final previous = _lastAuthorizationStatus;
+      _lastAuthorizationStatus = status;
+      if ((previous != null && previous != status) || !_tokenSyncSettled) {
+        debugPrint('[PUSH] permission = $status; refreshing registration');
+        await syncFcmToken();
+      }
+    } catch (e) {
+      debugPrint('[PUSH] resume check ${PrivacyLogUtils.errorSummary(e)}');
     }
   }
 
@@ -216,6 +451,9 @@ class PushNotificationService with WidgetsBindingObserver {
     final foreground = state == AppLifecycleState.resumed;
     if (_isAppForeground == foreground) return;
     _isAppForeground = foreground;
+    if (foreground) {
+      unawaited(_recoverOnResume());
+    }
     unawaited(_syncDeliveryContext());
   }
 
@@ -291,10 +529,6 @@ class PushNotificationService with WidgetsBindingObserver {
     return _messaging.getNotificationSettings();
   }
 
-  Future<void> _requestPermission() async {
-    await requestSystemPermission();
-  }
-
   Map<String, bool> normalizeNotificationSettings(dynamic raw) {
     final normalized = Map<String, bool>.from(defaultNotificationSettings);
     if (raw is Map) {
@@ -363,13 +597,31 @@ class PushNotificationService with WidgetsBindingObserver {
     );
   }
 
-  Future<void> syncFcmToken({Map<String, bool>? notificationSettings}) async {
+  /// Registers this device's FCM token under the signed-in account.
+  ///
+  /// Never throws. Returns `true` when there is nothing left to do (saved, or
+  /// nobody is signed in, or the account never receives pushes) and `false`
+  /// when the registration is still owed (no token yet, or a failure): the
+  /// set-up retry and the next app resume try again.
+  Future<bool> syncFcmToken({Map<String, bool>? notificationSettings}) async {
+    final hooks = _hooks;
+    if (hooks != null) {
+      try {
+        final settled = await hooks.syncToken();
+        _tokenSyncSettled = settled;
+        return settled;
+      } catch (_) {
+        _tokenSyncSettled = false;
+        return false;
+      }
+    }
     try {
       if (kIsWeb) {
         debugPrint(
           '[PUSH] Web push service worker is not configured, skip token sync.',
         );
-        return;
+        _tokenSyncSettled = true;
+        return true;
       }
 
       final userId = await _storage.getKakaoUserId();
@@ -378,7 +630,8 @@ class PushNotificationService with WidgetsBindingObserver {
         // Review fixtures never receive device tokens. Synthetic chat and
         // interaction traffic must stay entirely outside FCM delivery.
         debugPrint('[PUSH] Play review session, skip token sync.');
-        return;
+        _tokenSyncSettled = true;
+        return true;
       }
 
       final settings = await _messaging.getNotificationSettings();
@@ -397,11 +650,13 @@ class PushNotificationService with WidgetsBindingObserver {
 
       if (userId == null || userId.isEmpty) {
         debugPrint('[PUSH] no userId, skip');
-        return;
+        _tokenSyncSettled = true;
+        return true;
       }
       if (token == null || token.isEmpty) {
         debugPrint('[PUSH] no fcm token, skip');
-        return;
+        _tokenSyncSettled = false;
+        return false;
       }
 
       await _firestore
@@ -420,9 +675,13 @@ class PushNotificationService with WidgetsBindingObserver {
           }, SetOptions(merge: true));
 
       debugPrint('[PUSH] token saved to firestore');
+      _tokenSyncSettled = true;
+      return true;
     } catch (e, st) {
       debugPrint('[PUSH] syncFcmToken ${PrivacyLogUtils.errorSummary(e)}');
       debugPrint('[PUSH] stackType=${st.runtimeType}');
+      _tokenSyncSettled = false;
+      return false;
     }
   }
 
@@ -495,7 +754,19 @@ class PushNotificationService with WidgetsBindingObserver {
     final type = message.data['type']?.toString() ?? '';
     final roomId = message.data['roomId']?.toString() ?? '';
 
-    final notificationSettings = await loadUserNotificationSettings();
+    Map<String, bool> notificationSettings;
+    try {
+      notificationSettings = await loadUserNotificationSettings();
+    } catch (e) {
+      // Unknown settings (offline): show rather than silently drop.
+      debugPrint(
+        '[PUSH] settings unavailable for foreground message: '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+      notificationSettings = Map<String, bool>.from(
+        defaultNotificationSettings,
+      );
+    }
     if (!_isNotificationTypeEnabled(notificationSettings, type)) {
       debugPrint('[PUSH] suppress foreground notification by settings: $type');
       return;
@@ -610,6 +881,11 @@ class PushNotificationService with WidgetsBindingObserver {
     final key = buildOpenDedupeKey(data, messageId: message.messageId);
     if (!claimOpenHandling(key)) {
       debugPrint('[PUSH] suppress duplicate open/tap');
+      return;
+    }
+    final hooks = _hooks;
+    if (hooks != null) {
+      hooks.openMessage(message);
       return;
     }
     _navigateFromData(data);

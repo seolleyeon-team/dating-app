@@ -19,6 +19,7 @@ import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/keyed_stream.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
@@ -38,6 +39,9 @@ class _MyPageScreenState extends State<MyPageScreen> {
   final _friendService = FriendService();
   final _storageService = StorageService();
   final AskService _askService = AskService();
+  // Built once per user id: this screen calls setState for the friend count
+  // and the invite button, and each rebuild used to reopen the listener.
+  final _unreadAsksStream = KeyedStream<String, int>();
   String? _currentUserId;
   bool _isInvitingFriends = false;
   OverlayEntry? _inviteToastEntry;
@@ -245,8 +249,10 @@ class _MyPageScreenState extends State<MyPageScreen> {
               SliverToBoxAdapter(
                 child: (_currentUserId != null && _currentUserId!.isNotEmpty)
                     ? StreamBuilder<int>(
-                        stream: _askService.unreadReceivedCount(
+                        stream: _unreadAsksStream.of(
                           _currentUserId!,
+                          () =>
+                              _askService.unreadReceivedCount(_currentUserId!),
                         ),
                         builder: (context, askSnap) {
                           final hasUnread = (askSnap.data ?? 0) > 0;

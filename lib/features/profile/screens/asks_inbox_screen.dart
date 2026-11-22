@@ -9,6 +9,8 @@ import '../../../core/constants/app_colors.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/growing_query_window.dart';
+import '../../../shared/utils/keyed_stream.dart';
 import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 
@@ -42,6 +44,15 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
 
   String? _currentUserId;
   int _tabIndex = 0; // 0: 받은 무물, 1: 보낸 무물
+
+  // One listener per tab, per user id and window size. They were created in
+  // build(), so every rebuild reopened the listener of the visible tab.
+  final _receivedWindow = GrowingQueryWindow(pageSize: AskService.pageSize);
+  final _sentWindow = GrowingQueryWindow(pageSize: AskService.pageSize);
+  final _receivedStream =
+      KeyedStream<(String, int), QuerySnapshot<Map<String, dynamic>>>();
+  final _sentStream =
+      KeyedStream<(String, int), QuerySnapshot<Map<String, dynamic>>>();
 
   @override
   void initState() {
@@ -95,7 +106,18 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
                     )
                   : _tabIndex == 0
                   ? _AskList(
-                      stream: _askService.receivedAsksStream(_currentUserId!),
+                      // The tabs must not share StreamBuilder state: the list
+                      // keeps its data while a wider window loads.
+                      key: const ValueKey('received'),
+                      window: _receivedWindow,
+                      onWindowGrown: () => setState(() {}),
+                      stream: _receivedStream.of(
+                        (_currentUserId!, _receivedWindow.limit),
+                        () => _askService.receivedAsksStream(
+                          _currentUserId!,
+                          limit: _receivedWindow.limit,
+                        ),
+                      ),
                       emptyIcon: CupertinoIcons.tray,
                       emptyTitle: '아직 받은 무물이 없어요',
                       emptySub: '누군가 궁금해할 때까지 조금만 기다려주세요',
@@ -105,7 +127,16 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
                       userService: _userService,
                     )
                   : _AskList(
-                      stream: _askService.sentAsksStream(_currentUserId!),
+                      key: const ValueKey('sent'),
+                      window: _sentWindow,
+                      onWindowGrown: () => setState(() {}),
+                      stream: _sentStream.of(
+                        (_currentUserId!, _sentWindow.limit),
+                        () => _askService.sentAsksStream(
+                          _currentUserId!,
+                          limit: _sentWindow.limit,
+                        ),
+                      ),
                       emptyIcon: CupertinoIcons.paperplane,
                       emptyTitle: '아직 보낸 무물이 없어요',
                       emptySub: '프로필에서 궁금한 상대에게 질문을 보내보세요',
@@ -169,6 +200,8 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
 // =============================================================================
 class _AskList extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final GrowingQueryWindow window;
+  final VoidCallback onWindowGrown;
   final IconData emptyIcon;
   final String emptyTitle;
   final String emptySub;
@@ -178,6 +211,9 @@ class _AskList extends StatelessWidget {
   final UserService userService;
 
   const _AskList({
+    super.key,
+    required this.window,
+    required this.onWindowGrown,
     required this.stream,
     required this.emptyIcon,
     required this.emptyTitle,
@@ -193,7 +229,9 @@ class _AskList extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        // Keep the list while a wider window is loading.
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CupertinoActivityIndicator());
         }
         if (snapshot.hasError) {
@@ -222,22 +260,34 @@ class _AskList extends StatelessWidget {
           );
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final doc = docs[index];
-            final data = doc.data();
-            return _AskCard(
-              askId: doc.id,
-              data: data,
-              isReceived: isReceived,
-              currentUserId: currentUserId,
-              askService: askService,
-              userService: userService,
-            );
+        return NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification.metrics.axis == Axis.vertical &&
+                window.growIfNeeded(
+                  loadedCount: docs.length,
+                  extentAfter: notification.metrics.extentAfter,
+                )) {
+              onWindowGrown();
+            }
+            return false;
           },
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final doc = docs[index];
+              final data = doc.data();
+              return _AskCard(
+                askId: doc.id,
+                data: data,
+                isReceived: isReceived,
+                currentUserId: currentUserId,
+                askService: askService,
+                userService: userService,
+              );
+            },
+          ),
         );
       },
     );
@@ -679,7 +729,7 @@ class _Counterpart {
   final String university;
 }
 
-class _CounterpartProfile extends StatelessWidget {
+class _CounterpartProfile extends StatefulWidget {
   final UserService userService;
   final String userId;
   final String legacyNickname;
@@ -725,14 +775,41 @@ class _CounterpartProfile extends StatelessWidget {
   }
 
   @override
+  State<_CounterpartProfile> createState() => _CounterpartProfileState();
+}
+
+class _CounterpartProfileState extends State<_CounterpartProfile> {
+  // One read per counterpart. The future used to be created in build(), so
+  // every rebuild of the list (each snapshot, each wider window) read the
+  // public profile of every visible card again.
+  late Future<Map<String, dynamic>?> _profile = _load();
+
+  Future<Map<String, dynamic>?> _load() {
+    final userId = widget.userId;
+    if (userId.isEmpty) return Future<Map<String, dynamic>?>.value(null);
+    return widget.userService.getPublicProfile(userId).catchError((_) => null);
+  }
+
+  @override
+  void didUpdateWidget(_CounterpartProfile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The list reuses card state by position: a different counterpart must
+    // not keep showing the previous one's profile.
+    if (oldWidget.userId != widget.userId) _profile = _load();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>?>(
-      future: userId.isEmpty
-          ? Future<Map<String, dynamic>?>.value(null)
-          : userService.getPublicProfile(userId).catchError((_) => null),
-      builder: (context, snapshot) => builder(
+      // A new counterpart starts from an empty snapshot, not the old data.
+      key: ValueKey(widget.userId),
+      future: _profile,
+      builder: (context, snapshot) => widget.builder(
         context,
-        fromPublicProfile(snapshot.data, legacyNickname: legacyNickname),
+        _CounterpartProfile.fromPublicProfile(
+          snapshot.data,
+          legacyNickname: widget.legacyNickname,
+        ),
       ),
     );
   }

@@ -6,6 +6,13 @@ class AskService {
   CollectionReference<Map<String, dynamic>> get _asksRef =>
       _firestore.collection('asks');
 
+  /// The inbox lists listen to the newest [pageSize] asks and widen that
+  /// window as the user scrolls.
+  static const int pageSize = 50;
+
+  /// Upper bound of the unread badge query; its callers only show a dot.
+  static const int unreadCountCap = 20;
+
   /// Maximum question length (mirrors the Firestore rule).
   static const int maxTextLength = 500;
 
@@ -37,18 +44,24 @@ class AskService {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> receivedAsksStream(
-    String userId,
-  ) {
+    String userId, {
+    int limit = pageSize,
+  }) {
     return _asksRef
         .where('toUserId', isEqualTo: userId)
         .orderBy('createdAt', descending: true)
+        .limit(limit)
         .snapshots();
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> sentAsksStream(String userId) {
+  Stream<QuerySnapshot<Map<String, dynamic>>> sentAsksStream(
+    String userId, {
+    int limit = pageSize,
+  }) {
     return _asksRef
         .where('fromUserId', isEqualTo: userId)
         .orderBy('createdAt', descending: true)
+        .limit(limit)
         .snapshots();
   }
 
@@ -64,6 +77,7 @@ class AskService {
     return _asksRef
         .where('toUserId', isEqualTo: userId)
         .where('status', isEqualTo: 'sent')
+        .limit(unreadCountCap)
         .snapshots()
         .map((snap) => snap.size);
   }

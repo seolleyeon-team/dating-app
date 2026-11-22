@@ -11,19 +11,17 @@ import 'package:flutter/foundation.dart'
         kIsWeb,
         kReleaseMode;
 import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/error/crash_reporting.dart';
 import 'services/firebase_diagnostics.dart';
-import 'services/firebase_runtime.dart';
+import 'services/firebase_emulator_config.dart';
 import 'services/push_notification_service.dart';
 import 'services/app_check_bootstrap.dart';
 import 'features/shop/services/iap_service.dart';
 import 'shared/utils/app_check_provider_policy.dart';
+import 'shared/utils/release_build_guards.dart';
 import 'services/windows_protocol_registration_stub.dart'
     if (dart.library.io) 'services/windows_protocol_registration_io.dart';
 import 'services/app_check_web_storage_stub.dart'
@@ -37,32 +35,22 @@ import 'webview_web_stub.dart'
     if (dart.library.html) 'webview_web_impl.dart'
     as webview_web;
 
-/// `true`이면 **release APK/AAB**에서도 Debug App Check provider 사용 (콘솔 디버그 토큰).
-/// 로컬에 release 설치해 테스트할 때 Play Integrity 403 방지용.
-/// 스토어 배포 빌드에서는 이 플래그를 켜지 말 것 (Play Integrity / App Attest 사용).
-const bool _forceAppCheckDebugProvider = bool.fromEnvironment(
-  'FORCE_APP_CHECK_DEBUG',
-  defaultValue: false,
-);
+// Debug / QA dart-defines (FORCE_APP_CHECK_DEBUG, APP_CHECK_DIAGNOSTIC_MODE,
+// the App Check debug tokens) are read ONLY through ReleaseBuildGuards: a
+// release build ignores them, so a store-signed binary always uses Play
+// Integrity / App Attest and never carries a debug token.
+const bool _forceAppCheckDebugProvider =
+    ReleaseBuildGuards.forceAppCheckDebugProvider;
 const String _webAppCheckRecaptchaSiteKey = String.fromEnvironment(
   'APP_CHECK_WEB_RECAPTCHA_SITE_KEY',
   defaultValue: '',
 );
-const String _webAppCheckDebugToken = String.fromEnvironment(
-  'APP_CHECK_WEB_DEBUG_TOKEN',
-  defaultValue: '',
-);
-const String _androidAppCheckDebugToken = String.fromEnvironment(
-  'APP_CHECK_ANDROID_DEBUG_TOKEN',
-  defaultValue: '',
-);
+const String _webAppCheckDebugToken = ReleaseBuildGuards.webAppCheckDebugToken;
+const String _androidAppCheckDebugToken =
+    ReleaseBuildGuards.androidAppCheckDebugToken;
 
-/// Internal-test-only switch for isolating a single App Check token request.
-/// Production and ordinary internal-test builds must leave this unset.
-const bool _appCheckDiagnosticMode = bool.fromEnvironment(
-  'APP_CHECK_DIAGNOSTIC_MODE',
-  defaultValue: false,
-);
+/// Debug/profile-only switch for isolating a single App Check token request.
+const bool _appCheckDiagnosticMode = ReleaseBuildGuards.appCheckDiagnosticMode;
 
 const bool _useFirebaseEmulators = bool.fromEnvironment(
   'USE_FIREBASE_EMULATORS',
@@ -75,22 +63,6 @@ const String _firebaseEmulatorHost = String.fromEnvironment(
   'FIREBASE_EMULATOR_HOST',
   defaultValue: '127.0.0.1',
 );
-Future<void> _configureFirebaseEmulators() async {
-  // StoreKit Local Testing receipt은 운영 Apple 서버에서 검증할 수 없으므로,
-  // emulator + IAP_VERIFICATION_MODE=storekit_local 조합만 허용한다.
-  if (!_useFirebaseEmulators || kReleaseMode) return;
-
-  FirebaseAuth.instance.useAuthEmulator(_firebaseEmulatorHost, 9099);
-  FirebaseFirestore.instance.useFirestoreEmulator(_firebaseEmulatorHost, 8080);
-  FirebaseFunctions.instance.useFunctionsEmulator(_firebaseEmulatorHost, 5001);
-  FirebaseFunctions.instanceFor(
-    region: firebaseFunctionsRegion,
-  ).useFunctionsEmulator(_firebaseEmulatorHost, 5001);
-  debugPrint(
-    '[Firebase] Using local Auth/Firestore/Functions emulators '
-    'host=$_firebaseEmulatorHost',
-  );
-}
 
 void main() {
   runZonedGuarded(
@@ -134,7 +106,16 @@ void main() {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
-      await _configureFirebaseEmulators();
+      // StoreKit Local Testing receipt은 운영 Apple 서버에서 검증할 수 없으므로,
+      // emulator + IAP_VERIFICATION_MODE=storekit_local 조합만 허용한다.
+      // Auth, Firestore, Functions and Storage are routed together or not at
+      // all, and never in a release build. A partial routing throws, which
+      // stops start-up instead of running half against production.
+      await configureFirebaseEmulators(
+        requested: _useFirebaseEmulators,
+        isReleaseBuild: kReleaseMode,
+        host: _firebaseEmulatorHost,
+      );
       FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
 
       // P1-6: crash reporting — FlutterError.onError, PlatformDispatcher
@@ -154,7 +135,7 @@ void main() {
               useLocalWebDebugProvider ||
               (_forceAppCheckDebugProvider &&
                   shouldUseWebDebugAppCheckProvider(
-                    isDebugMode: true,
+                    isDebugMode: !kReleaseMode,
                     host: Uri.base.host,
                   ));
           if (useWebDebugProvider) {

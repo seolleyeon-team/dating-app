@@ -7,9 +7,11 @@
 // 메시지를 표시하지 않는다.
 // =============================================================================
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
+import '../../../../shared/utils/safe_catch.dart';
 import '../../../chat/models/chat_room_data.dart';
 import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
@@ -54,6 +56,11 @@ class _BlindMeetingFollowUpScreenState
 
   BlindMeetingRecommendationView? _view;
   BlindMeetingFollowUpChoice? _choice;
+
+  /// Opponents the server accepts as follow-up targets. `null` when that
+  /// lookup failed: the screen then offers the whole opponent team, as it did
+  /// before, and the server still validates the submission.
+  List<String>? _selectableUids;
   List<BlindMeetingMutualMatch> _mutualMatches =
       const <BlindMeetingMutualMatch>[];
   final Set<String> _selected = <String>{};
@@ -77,6 +84,7 @@ class _BlindMeetingFollowUpScreenState
     });
     try {
       final view = await _repository.loadRecommendation(widget.args.meetingId);
+      final selectableUids = view == null ? null : await _loadTargets();
       final choice = await _repository.loadMyFollowUpChoice(
         widget.args.meetingId,
       );
@@ -86,6 +94,7 @@ class _BlindMeetingFollowUpScreenState
       if (!mounted) return;
       setState(() {
         _view = view;
+        _selectableUids = selectableUids;
         _choice = choice;
         _mutualMatches = matches;
         _selected
@@ -102,12 +111,28 @@ class _BlindMeetingFollowUpScreenState
     }
   }
 
+  /// The opponent team is not the selectable set: the server leaves out
+  /// replaced or absent participants, users under a safety restriction and
+  /// blocked pairs, and rejects a submission that names any of them.
+  Future<List<String>?> _loadTargets() async {
+    try {
+      return await _repository.loadFollowUpTargets(widget.args.meetingId);
+    } catch (error, stackTrace) {
+      logCaughtError('BlindFollowUpTargets', error, stackTrace);
+      return null;
+    }
+  }
+
   BlindMeetingFollowUpState? _state() {
     final view = _view;
     final choice = _choice;
     if (view == null) return null;
+    final opponentUids = view.opponentTeam.map((p) => p.userId).toList();
+    final targets = _selectableUids;
     return BlindMeetingFollowUpState(
-      selectableUids: view.opponentTeam.map((p) => p.userId).toList(),
+      selectableUids: targets == null
+          ? opponentUids
+          : opponentUids.where(targets.contains).toList(),
       choice:
           choice ??
           BlindMeetingFollowUpChoice(
@@ -154,13 +179,39 @@ class _BlindMeetingFollowUpScreenState
           params: {'meetingId': widget.args.meetingId},
         );
       }
+    } on BlindMeetingFollowUpRejectedException catch (rejected) {
+      if (!mounted) return;
+      if (rejected.code == 'already_submitted') {
+        // An earlier attempt was stored on the server. Show that stored
+        // choice (and any mutual match) instead of leaving the cards open.
+        await _load();
+        if (!mounted) return;
+        if (_choice?.isSubmitted ?? false) return;
+      }
+      setState(() => _submitError = rejected.message);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _submitError = '$error');
+      setState(() => _submitError = _submitErrorText(error));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
+
+  /// A callable error carries the server's own (Korean) sentence in `message`;
+  /// its `toString()` prefixes the SDK plugin and status code. A message with
+  /// no Korean in it is a status name or transport text from the SDK itself.
+  String _submitErrorText(Object error) {
+    if (error is FirebaseFunctionsException) {
+      final message = error.message?.trim() ?? '';
+      if (_asciiOnly.hasMatch(message)) {
+        return '선택을 제출하지 못했어요. 잠시 후 다시 시도해주세요.';
+      }
+      return message;
+    }
+    return '$error';
+  }
+
+  static final RegExp _asciiOnly = RegExp(r'^[ -~\s]*$');
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +252,14 @@ class _BlindMeetingFollowUpScreenState
 
     final closed = !state.isOpenAt(_now);
     final submitted = state.choice.isSubmitted;
+    // A choice that was already stored stays visible even if its target has
+    // since stopped being selectable.
+    final targets = [
+      for (final profile in view.opponentTeam)
+        if (state.selectableUids.contains(profile.userId) ||
+            state.choice.selectedUids.contains(profile.userId))
+          profile,
+    ];
 
     return _wrap(
       Column(
@@ -227,8 +286,17 @@ class _BlindMeetingFollowUpScreenState
                   BlindMeetingFollowUpViolation.chooserNotAttended.message,
             )
           else ...[
-            for (final profile in view.opponentTeam)
-              _selectableCard(palette, profile, disabled: closed || submitted),
+            for (final profile in targets)
+              _selectableCard(
+                palette,
+                profile,
+                disabled: closed || submitted || _submitting,
+              ),
+            if (targets.isEmpty)
+              Text(
+                '지금 선택할 수 있는 상대가 없어요.',
+                style: BlindMeetingText.body(palette.inkSoft),
+              ),
             const SizedBox(height: 8),
             if (submitted)
               Text(
