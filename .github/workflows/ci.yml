@@ -708,6 +708,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # tests/test_firebase_cli_15302_parameter_resolution.py drives the pinned
+      # Firebase CLI out of npm's npx cache with the pinned Node; same
+      # preparation as the functions-bootstrap job (the first run of this job
+      # failed that one test for lack of it).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+      - name: Prepare pinned Firebase CLI parameter regression
+        run: |
+          cli_version="$(npx --yes firebase-tools@15.30.2 --version)"
+          test "$cli_version" = "15.30.2"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
