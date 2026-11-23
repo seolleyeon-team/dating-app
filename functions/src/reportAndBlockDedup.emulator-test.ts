@@ -27,7 +27,10 @@ type Runnable = { run: (request: unknown) => Promise<unknown> };
 type Result = Record<string, unknown>;
 const db = getFirestore();
 let seq = 0;
-const fresh = (p: string) => `${p}_${Date.now().toString(36)}_${++seq}`;
+// The file tag keeps ids apart from reportAndBlock.emulator-test.ts, which runs
+// in the same emulator session in a parallel process with the same generator
+// (both started in the same millisecond once and read each other's report).
+const fresh = (p: string) => `${p}_dedup_${Date.now().toString(36)}_${++seq}`;
 
 async function seedUser(uid: string, extra: Record<string, unknown> = {}) {
   await db.collection("users").doc(uid).set({

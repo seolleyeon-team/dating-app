@@ -55,6 +55,12 @@ export const REPORT_REVIEW_DEADLINE_MS = 24 * 60 * 60 * 1000;
 /** Screen tokens the app sends (profile, chat, profile_specific_detail_screen, …). */
 const REPORT_SOURCE = /^[a-z][a-z0-9_]{0,63}$/;
 const OPEN_REPORT_STATUSES = new Set(["pending", "reviewing"]);
+/**
+ * Upper bound on legacy open reports of one pair re-read inside the report
+ * transaction. More than one is already an anomaly; the first still-open one
+ * decides.
+ */
+const MAX_LEGACY_OPEN_REPORT_CANDIDATES = 10;
 
 /**
  * Field on the pair's deterministic report that names the newest later report
@@ -315,12 +321,34 @@ export function createReportAndBlockUserFunction(
       // contend on that one document.
       const reports = firestore.collection("reports");
       const anchorRef = reports.doc(accountReportId(plan.reporterUid, plan.reportedUid));
+      const isOpenOfPair = (data: Record<string, unknown> | undefined) =>
+        isOpenAccountReportOfPair(data, plan.reporterUid, plan.reportedUid);
+
+      // Reports written before the tracker existed (random ids, no pointer)
+      // can only be found through the pair's history. That history is read
+      // here, BEFORE the transaction, and each open candidate is re-read by id
+      // inside it. A query inside the transaction locks its whole range:
+      // concurrent first reports of one pair then each held that range while
+      // creating a document inside it, and under load every one of them ran
+      // out of retries (seen on the first CI run of this change). Nothing is
+      // lost by reading it outside: every report created from now on is
+      // reachable through the tracker, which IS read in the transaction, so a
+      // legacy report can only be closed in between, never appear.
+      // Two equality filters need no composite index.
+      const legacyOpenRefs = (
+        await reports
+          .where("reporterId", "==", plan.reporterUid)
+          .where("reportedId", "==", plan.reportedUid)
+          .get()
+      ).docs
+        .filter((doc) => isOpenOfPair(doc.data() as Record<string, unknown>))
+        .map((doc) => doc.ref)
+        .slice(0, MAX_LEGACY_OPEN_REPORT_CANDIDATES);
 
       return firestore.runTransaction(async (tx) => {
-        const [reportedSnap, anchorSnap] = await Promise.all([
-          tx.get(reportedRef),
-          tx.get(anchorRef),
-        ]);
+        // One read RPC for both documents: separate reads let a competing
+        // commit slip between them and wait on the first lock (AUD-17).
+        const [reportedSnap, anchorSnap] = await tx.getAll(reportedRef, anchorRef);
         if (!reportedSnap.exists) {
           throw new HttpsError("not-found", "신고할 사용자를 찾을 수 없어요.");
         }
@@ -336,8 +364,6 @@ export function createReportAndBlockUserFunction(
             "Account partitions do not match.",
           );
         }
-        const isOpenOfPair = (data: Record<string, unknown> | undefined) =>
-          isOpenAccountReportOfPair(data, plan.reporterUid, plan.reportedUid);
         const anchorData = anchorSnap.data() as Record<string, unknown> | undefined;
         const trackedId = asString(anchorData?.[PAIR_LATEST_REPORT_FIELD]);
         let openReportId: string | null = null;
@@ -351,15 +377,17 @@ export function createReportAndBlockUserFunction(
             }
           }
           if (!openReportId) {
-            // Reports written before the tracker existed (random ids, no
-            // pointer) are found through the pair's own history, read inside
-            // the transaction. Two equality filters need no composite index.
-            const history = await tx.get(reports
-              .where("reporterId", "==", plan.reporterUid)
-              .where("reportedId", "==", plan.reportedUid));
-            const legacy = history.docs.find((doc) =>
-              isOpenOfPair(doc.data() as Record<string, unknown>));
-            if (legacy) openReportId = legacy.id;
+            // Legacy candidates found before the transaction: confirm, by id,
+            // that one is still open now.
+            const candidates = legacyOpenRefs.filter(
+              (ref) => ref.id !== anchorRef.id && ref.id !== trackedId,
+            );
+            if (candidates.length > 0) {
+              const current = await tx.getAll(...candidates);
+              const legacy = current.find((doc) =>
+                isOpenOfPair(doc.data() as Record<string, unknown> | undefined));
+              if (legacy) openReportId = legacy.id;
+            }
           }
         }
         const reportRef = openReportId

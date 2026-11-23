@@ -34,7 +34,9 @@ import {
 type Runnable = { run: (request: unknown) => Promise<unknown> };
 const db = getFirestore();
 let seq = 0;
-const fresh = (p: string) => `${p}_${Date.now().toString(36)}_${++seq}`;
+// File tag: accountStateGate.emulator-test.ts runs in the same emulator session
+// in a parallel process with the same generator.
+const fresh = (p: string) => `${p}_aio_${Date.now().toString(36)}_${++seq}`;
 const sha = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
 
 type Person = { name: string; phoneNumber: string; birthDate: string; ci: string; di?: string; id: string };
