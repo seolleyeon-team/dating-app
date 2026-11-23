@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
+import '../utils/release_build_guards.dart';
 import 'seolleyeon_splash_view.dart';
 
 class AppPrivacySplashOverlay extends StatefulWidget {
@@ -14,12 +15,10 @@ class AppPrivacySplashOverlay extends StatefulWidget {
 
 class _AppPrivacySplashOverlayState extends State<AppPrivacySplashOverlay>
     with WidgetsBindingObserver {
-  // Internal-only recording build switch. The App Store build does not pass
-  // this define, so its background privacy cover remains enabled.
-  static const _allowQaScreenCapture = bool.fromEnvironment(
-    'SEOLLEYEON_QA_ALLOW_SCREEN_CAPTURE',
-    defaultValue: false,
-  );
+  // Internal-only recording build switch. It is read through the release
+  // guard, so a release build keeps its background privacy cover even if the
+  // define is passed.
+  static const _allowQaScreenCapture = ReleaseBuildGuards.allowQaScreenCapture;
 
   AppLifecycleState? _lastLifecycleState;
 

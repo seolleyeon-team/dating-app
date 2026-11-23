@@ -2,6 +2,7 @@ import { getStorage } from "firebase-admin/storage";
 import { type Firestore } from "firebase-admin/firestore";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import { isRestrictedAccountData } from "./accountStatePolicy";
 import { chatProfilePhotoBucket } from "./avatarMedia";
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 
@@ -106,7 +107,10 @@ function isInactiveUser(userData: Record<string, unknown>): boolean {
     userData.isSuspended === true ||
     userData.isWithdrawn === true ||
     userData.isActive === false ||
-    INACTIVE_ACCOUNT_STATUSES.has(asString(userData.status).toLowerCase())
+    INACTIVE_ACCOUNT_STATUSES.has(asString(userData.status).toLowerCase()) ||
+    // AUD-22: the shared classifier adds what this list missed (a deletion in
+    // progress, `accountStatus`, isBanned).
+    isRestrictedAccountData(userData)
   );
 }
 

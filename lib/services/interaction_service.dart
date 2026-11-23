@@ -222,34 +222,51 @@ class InteractionService {
   // 조회 쿼리
   // ---------------------------------------------------------------------------
 
+  /// The like lists read the newest [likesPageSize] interactions and widen
+  /// that window as the user scrolls. The `action` filter below is required
+  /// by the `interactions` list rule; only the bound is added to it.
+  static const int likesPageSize = 60;
+
   /// 나에게 like한 유저 목록
-  Future<List<Map<String, dynamic>>> getLikesReceived(String userId) async {
+  Future<List<Map<String, dynamic>>> getLikesReceived(
+    String userId, {
+    int limit = likesPageSize,
+  }) async {
     final snap = await _interactionsRef
         .where('toUserId', isEqualTo: userId)
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
+        .limit(limit)
         .get();
 
     return snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   /// 내가 like한 유저 목록
-  Future<List<Map<String, dynamic>>> getLikesSent(String userId) async {
+  Future<List<Map<String, dynamic>>> getLikesSent(
+    String userId, {
+    int limit = likesPageSize,
+  }) async {
     final snap = await _interactionsRef
         .where('fromUserId', isEqualTo: userId)
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
+        .limit(limit)
         .get();
 
     return snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   /// 내가 like한 유저 목록 (실시간 스트림)
-  Stream<List<Map<String, dynamic>>> watchLikesSent(String userId) {
+  Stream<List<Map<String, dynamic>>> watchLikesSent(
+    String userId, {
+    int limit = likesPageSize,
+  }) {
     return _interactionsRef
         .where('fromUserId', isEqualTo: userId)
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
+        .limit(limit)
         .snapshots()
         .map(
           (snap) =>
@@ -258,11 +275,15 @@ class InteractionService {
   }
 
   /// 나에게 like한 유저 목록 (실시간 스트림)
-  Stream<List<Map<String, dynamic>>> watchLikesReceived(String userId) {
+  Stream<List<Map<String, dynamic>>> watchLikesReceived(
+    String userId, {
+    int limit = likesPageSize,
+  }) {
     return _interactionsRef
         .where('toUserId', isEqualTo: userId)
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
+        .limit(limit)
         .snapshots()
         .map(
           (snap) =>

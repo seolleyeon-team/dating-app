@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildDepartmentRecommendationExclusionPayload,
   departmentOfUser,
+  departmentPairNeedsReconcile,
   departmentRecommendationPrivacyChanged,
   departmentsToReconcile,
   isAvoidSameDepartmentEnabled,
@@ -97,5 +98,45 @@ test("department changes and preference changes trigger reconciliation", () => {
       privacySettings: { avoidSameDepartment: true },
     }),
     ["컴퓨터과학과", "심리학과"],
+  );
+});
+
+test("B-14: a pair is left alone only when avoidance is not, and was not, in play and nothing is stored", () => {
+  const plain = { onboarding: { department: "컴퓨터과학과" } };
+  const avoiding = {
+    onboarding: { department: "컴퓨터과학과" },
+    privacySettings: { avoidSameDepartment: true },
+  };
+  const elsewhere = { onboarding: { department: "심리학과" } };
+
+  // Sign-up into a department where the peer does not avoid: nothing to write.
+  assert.equal(
+    departmentPairNeedsReconcile({ before: null, after: plain, peer: plain, exclusionExists: false }),
+    false,
+  );
+  // The peer avoids the department: the pair must be materialized.
+  assert.equal(
+    departmentPairNeedsReconcile({ before: null, after: plain, peer: avoiding, exclusionExists: false }),
+    true,
+  );
+  // The changed user stopped avoiding: an exclusion may exist and must go.
+  assert.equal(
+    departmentPairNeedsReconcile({ before: avoiding, after: plain, peer: plain, exclusionExists: false }),
+    true,
+  );
+  // Account deletion of a user who avoided: both directions are cleaned.
+  assert.equal(
+    departmentPairNeedsReconcile({ before: avoiding, after: null, peer: plain, exclusionExists: false }),
+    true,
+  );
+  // Leaving a department where nobody avoided: nothing to clean.
+  assert.equal(
+    departmentPairNeedsReconcile({ before: plain, after: elsewhere, peer: plain, exclusionExists: false }),
+    false,
+  );
+  // A stored exclusion is always reconciled, whatever the snapshot says.
+  assert.equal(
+    departmentPairNeedsReconcile({ before: plain, after: elsewhere, peer: null, exclusionExists: true }),
+    true,
   );
 });

@@ -27,6 +27,8 @@ import '../../chat/providers/chat_unread_provider.dart';
 import '../../notifications/services/notification_service.dart';
 import '../models/profile_card_args.dart';
 import '../services/ai_preference_performance_trace.dart';
+import '../../../shared/utils/keyed_stream.dart';
+import '../services/recommendation_privacy_watch.dart';
 import '../services/recommendation_refresh_service.dart';
 import '../widgets/recommendation_refresh_dialog.dart';
 
@@ -60,6 +62,10 @@ class MysteryCardScreen extends StatefulWidget {
 class _MysteryCardScreenState extends State<MysteryCardScreen> {
   final _storageService = StorageService();
   final _notificationService = NotificationService();
+  // Built once per user id. Creating them in build() reopened both Firestore
+  // listeners every time the home tab rebuilt.
+  final _unreadNotificationStream = KeyedStream<String, int>();
+  final _heartBalanceStream = KeyedStream<String, int>();
   String? _currentUserId;
 
   @override
@@ -90,22 +96,27 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
                       : null,
                   notificationStream: _currentUserId == null
                       ? null
-                      : _notificationService.unreadNotificationCountStream(
+                      : _unreadNotificationStream.of(
                           _currentUserId!,
+                          () => _notificationService
+                              .unreadNotificationCountStream(_currentUserId!),
                         ),
                   heartBalance: widget.heartBalance,
                   heartBalanceStream: _currentUserId == null
                       ? null
-                      : FirebaseFirestore.instance
-                            .collection('users')
-                            .doc(_currentUserId!)
-                            .snapshots()
-                            .map(
-                              (snapshot) =>
-                                  (snapshot.data()?['heartBalance'] as num?)
-                                      ?.toInt() ??
-                                  0,
-                            ),
+                      : _heartBalanceStream.of(
+                          _currentUserId!,
+                          () => FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(_currentUserId!)
+                              .snapshots()
+                              .map(
+                                (snapshot) =>
+                                    (snapshot.data()?['heartBalance'] as num?)
+                                        ?.toInt() ??
+                                    0,
+                              ),
+                        ),
                   onAiPreference:
                       widget.onAiPreference ??
                       () {
@@ -375,7 +386,9 @@ class _LockerRecommendationContentState
   bool _recommendationLoadFailed = false;
   RecommendationFeedStatus _feedStatus = RecommendationFeedStatus.notGenerated;
   String? _privacyWatchedUid;
-  StreamSubscription<void>? _privacySubscription;
+  StreamSubscription<String>? _privacySubscription;
+  RecommendationReloadGate _reloadGate = RecommendationReloadGate();
+  final _unreadAsksStream = KeyedStream<String, int>();
   StreamSubscription<void>? _candidateSubscription;
   Timer? _privacyReloadDebounce;
   String _watchedCandidateKey = '';
@@ -393,6 +406,8 @@ class _LockerRecommendationContentState
     }
     _isReloading = true;
     _reloadRequested = false;
+    _reloadGate.loadStarted();
+    String? feedPrivacyFingerprint;
     try {
       final firebaseUserId = FirebaseAuth.instance.currentUser?.uid.trim();
       final cachedUserId = (await _storageService.getKakaoUserId())?.trim();
@@ -420,6 +435,7 @@ class _LockerRecommendationContentState
         limit: RecommendationRefreshService.windowSize * 2,
         userId: userId,
       );
+      feedPrivacyFingerprint = feedResult.privacyFingerprint;
       final eligibleProfiles = feedResult.profiles;
       // 유료 새로고침 자격은 서버(entitlement 문서)가 source of truth 다.
       // 앱을 껐다 켜도 같은 dateKey 면 결제 시점에 확정된 3명이 복원된다.
@@ -481,7 +497,12 @@ class _LockerRecommendationContentState
       }
     } finally {
       _isReloading = false;
-      if (_reloadRequested && mounted) {
+      // The privacy watcher may have moved, while this load was running, to a
+      // state the load did not read. Its other values are compared in
+      // [_watchRecommendationPrivacy].
+      if (_reloadGate.loadFinished(feedPrivacyFingerprint) && mounted) {
+        _invalidateAndReloadRecommendations();
+      } else if (_reloadRequested && mounted) {
         _reloadRequested = false;
         _privacyReloadDebounce?.cancel();
         _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
@@ -545,10 +566,14 @@ class _LockerRecommendationContentState
     if (_privacyWatchedUid == uid) return;
     _privacySubscription?.cancel();
     _privacyWatchedUid = uid;
+    _reloadGate = RecommendationReloadGate()..loadStarted();
     _privacySubscription = _aiService
         .watchRecommendationPrivacyChanges(uid)
         .listen(
-          (_) {
+          (fingerprint) {
+            // Only a change in what the feed is filtered by reloads it. The
+            // viewer document also changes for reasons the feed never reads.
+            if (!_reloadGate.onFingerprint(fingerprint)) return;
             // Remove existing cards immediately. The server-authoritative
             // reload may take a moment, but a newly excluded friend must not
             // remain tappable while it is in flight.
@@ -929,7 +954,10 @@ class _LockerRecommendationContentState
                   StreamBuilder<int>(
                     stream: _userId == null
                         ? null
-                        : _askService.unreadReceivedCount(_userId!),
+                        : _unreadAsksStream.of(
+                            _userId!,
+                            () => _askService.unreadReceivedCount(_userId!),
+                          ),
                     builder: (context, snapshot) => Semantics(
                       label: '무물함',
                       button: true,

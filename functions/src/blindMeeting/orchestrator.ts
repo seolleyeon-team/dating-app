@@ -438,12 +438,24 @@ export async function createMeetingFromProposal(
     const partyRefs = realPartyIds.map((partyId) =>
       db().collection(BLIND_MEETING_COLLECTIONS.parties).doc(partyId)
     );
-    const [snaps, userSnaps, partySnaps, roomSnap] = await Promise.all([
-      Promise.all(refs.map((ref) => tx.get(ref))),
-      Promise.all(userRefs.map((ref) => tx.get(ref))),
-      Promise.all(partyRefs.map((ref) => tx.get(ref))),
-      tx.get(roomRef),
-    ]);
+    // One BatchGetDocuments for the whole read set (AUD-17). Separate
+    // tx.get calls are separate RPCs: the first one starts the transaction and
+    // takes its read lock, the rest are sent only after it returns. When a
+    // concurrent claim of the same applications commits in that gap, its commit
+    // waits for our first lock while our remaining reads wait behind its
+    // commit. The Firestore emulator breaks that deadlock by invalidating the
+    // reader and failing its pending reads with a non-retryable
+    // INVALID_ARGUMENT ("Transaction is invalid or closed"), so the whole
+    // matching run threw instead of losing the claim cleanly. With a single
+    // read request this transaction never holds a lock while a read is queued.
+    const readSet = await tx.getAll(...refs, ...userRefs, ...partyRefs, roomRef);
+    const snaps = readSet.slice(0, refs.length);
+    const userSnaps = readSet.slice(refs.length, refs.length + userRefs.length);
+    const partySnaps = readSet.slice(
+      refs.length + userRefs.length,
+      refs.length + userRefs.length + partyRefs.length
+    );
+    const roomSnap = readSet[readSet.length - 1];
 
     // 방 id 는 새 meetingId 에서 결정되므로 이미 존재하면 손상 신호다.
     if (roomSnap.exists) {

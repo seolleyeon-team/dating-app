@@ -129,10 +129,40 @@ void main() {
       listenerStart,
       source.indexOf('void _startKakaoSchemeListener()'),
     );
+    // AUD-24: the guard used to be an early `return` for the whole listener
+    // (`if (kIsWeb || _emailLinkPendingAtBootstrap) return;`), which also
+    // dropped every later App Link of that session. The guard is now exactly
+    // as wide as the race: the launch email link is never read a second time
+    // here, and never handled when the platform replays it on the stream.
+    expect(listenerSection, contains('if (kIsWeb) return;'));
     expect(
       listenerSection,
-      contains('if (kIsWeb || _emailLinkPendingAtBootstrap) return;'),
+      isNot(contains('if (kIsWeb || _emailLinkPendingAtBootstrap) return;')),
     );
+    final initialRead = listenerSection.indexOf('_appLinks.getInitialLink()');
+    final initialGuard = listenerSection.indexOf(
+      'if (!_emailLinkPendingAtBootstrap) {',
+    );
+    expect(initialGuard, isNonNegative);
+    expect(
+      initialRead,
+      greaterThan(initialGuard),
+      reason: 'the launch email link is read by Splash/StudentVerification',
+    );
+    final handler = listenerSection.substring(
+      listenerSection.indexOf('Future<void> _handleAppLink(Uri uri)'),
+    );
+    expect(
+      handler.indexOf('if (_isBootstrapEmailLink(uri))'),
+      inInclusiveRange(0, handler.indexOf('_handleIncomingUri(uri)')),
+      reason: 'the replayed launch link must be skipped before handling',
+    );
+    // Both link sources go through the guarded handler, never around it.
+    expect(
+      RegExp(r'_handleIncomingUri\(').allMatches(listenerSection).length,
+      1,
+    );
+    // The behaviour itself is covered by test/auth_provider_bootstrap_test.dart.
   });
 
   test('Kakao OAuth callback is owned by the SDK, not app-side screens', () {

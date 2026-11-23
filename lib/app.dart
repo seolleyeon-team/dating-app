@@ -17,6 +17,7 @@ import 'features/event/meeting_icebreaker/services/meeting_icebreaker_deep_link_
 import 'features/onboarding/services/avatar_generation_session_controller.dart';
 import 'features/onboarding/widgets/avatar_ready_banner_overlay.dart';
 import 'services/current_route_observer.dart';
+import 'shared/utils/release_build_guards.dart';
 import 'shared/widgets/app_compatibility_gate.dart';
 import 'shared/widgets/app_privacy_splash_overlay.dart';
 
@@ -35,11 +36,9 @@ class SeolleyeonApp extends StatefulWidget {
 
 class _SeolleyeonAppState extends State<SeolleyeonApp> {
   // Internal-only build switch used to make the physical-device App Review
-  // recording. Production builds never pass this define and keep protection.
-  static const _allowQaScreenCapture = bool.fromEnvironment(
-    'SEOLLEYEON_QA_ALLOW_SCREEN_CAPTURE',
-    defaultValue: false,
-  );
+  // recording. A release build ignores the define (ReleaseBuildGuards), so
+  // store binaries always keep the protection.
+  static const _allowQaScreenCapture = ReleaseBuildGuards.allowQaScreenCapture;
 
   /// 아바타 완료 배너의 "지금 온보딩 구간인가" 판단에 쓰는 라우트 관측자.
   final CurrentRouteObserver _routeObserver = CurrentRouteObserver();

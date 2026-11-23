@@ -12,6 +12,7 @@ import {
   type CallableRequest,
 } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import { recordAvatarEnqueueSuccess } from "./avatarEnqueueOutcome";
 import {
   canPreviewCandidate,
   isSoftNeedsReviewAvatarCandidate,
@@ -1865,34 +1866,12 @@ export function createRetryCurrentAvatarGenerationFunction(
 
       const retryJobRef = firestore.collection("avatarJobs").doc(retryResult.retryJobId);
       if (retryResult.shouldEnqueue) {
+        let queueResult: Awaited<ReturnType<typeof enqueueQueuePayload>>;
         try {
-          const queueResult = await enqueueQueuePayload(
+          queueResult = await enqueueQueuePayload(
             "avatar_generation",
             retryResult.retryPayload,
           );
-          await retryJobRef.set(
-            {
-              status: "queued",
-              errorCode: FieldValue.delete(),
-              queueStatus: summarizeQueueWriteState({
-                avatar: queueResult,
-                clip: { status: "skipped_disabled" },
-              }).queueStatus,
-              queueMode: readMap(queueResult).mode ?? queueMode(),
-              queuedAt: FieldValue.serverTimestamp(),
-              updatedAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true },
-          );
-          retryResult.jobData = {
-            ...readMap(retryResult.jobData),
-            status: "queued",
-            errorCode: undefined,
-            queueStatus: summarizeQueueWriteState({
-              avatar: queueResult,
-              clip: { status: "skipped_disabled" },
-            }).queueStatus,
-          };
         } catch (error) {
           logger.error("Avatar retry enqueue failed", {
             uidHash: sha256Hex(uid).slice(0, 12),
@@ -1927,6 +1906,38 @@ export function createRetryCurrentAvatarGenerationFunction(
             "internal",
             "Avatar retry could not be queued.",
           );
+        }
+        // AUD-09: the task exists from here on. Record it without overwriting
+        // a state the worker already wrote; a failure of this bookkeeping
+        // write is not an enqueue failure.
+        const retryQueueStatus = summarizeQueueWriteState({
+          avatar: queueResult,
+          clip: { status: "skipped_disabled" },
+        }).queueStatus;
+        try {
+          const outcome = await recordAvatarEnqueueSuccess(
+            firestore,
+            retryJobRef,
+            {
+              queueMode: readMap(queueResult).mode ?? queueMode(),
+              queueStatus: retryQueueStatus,
+            },
+            { stampQueuedAt: true },
+          );
+          if (outcome === "queued") {
+            retryResult.jobData = {
+              ...readMap(retryResult.jobData),
+              status: "queued",
+              errorCode: undefined,
+              queueStatus: retryQueueStatus,
+            };
+          }
+        } catch (error) {
+          logger.error("Avatar retry enqueue bookkeeping failed", {
+            uidHash: sha256Hex(uid).slice(0, 12),
+            jobIdHash: sha256Hex(retryResult.retryJobId).slice(0, 12),
+            ...safeAvatarMediaErrorLogFields(error),
+          });
         }
       }
 

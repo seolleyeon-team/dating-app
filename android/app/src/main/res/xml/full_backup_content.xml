@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 6-11 (API 23-30) Auto Backup rules. Backup is already disabled by
+  `android:allowBackup="false"`; this file keeps every domain excluded even
+  if that attribute is ever flipped by a manifest merge. See
+  data_extraction_rules.xml for what is stored and why none of it may be
+  restored onto another device.
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+</full-backup-content>

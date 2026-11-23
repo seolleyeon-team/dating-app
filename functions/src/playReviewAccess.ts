@@ -13,8 +13,10 @@ import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 
+import { assertActiveAccountState } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 import { buildDirectRoomId } from "./matchIdentity";
+import { kstDateKeyCompact } from "./shared/kstDate";
 
 export const PLAY_REVIEW_PARTITION = "play_review";
 export const PLAY_REVIEW_ACCOUNT_TYPE = "google_play_review";
@@ -158,12 +160,9 @@ export function dataPartitionOf(
   return value === PLAY_REVIEW_PARTITION ? PLAY_REVIEW_PARTITION : "invalid";
 }
 
+// AUD-22: one KST calendar-day rule (shared/kstDate.ts).
 function kstDateKey(now = new Date()): string {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const year = kst.getUTCFullYear().toString();
-  const month = (kst.getUTCMonth() + 1).toString().padStart(2, "0");
-  const day = kst.getUTCDate().toString().padStart(2, "0");
-  return `${year}${month}${day}`;
+  return kstDateKeyCompact(now);
 }
 
 function kstIsoDate(now = new Date()): string {
@@ -244,6 +243,9 @@ export async function resolvePlayReviewUser(
   if (!snap.exists || !isPlayReviewUserData(data)) {
     throw new HttpsError("failed-precondition", "Review profile is unavailable.");
   }
+  // NEW-24: the review account is subject to the same account-state policy as
+  // every other account (a moderation decision on it must take effect).
+  assertActiveAccountState(data);
   return { userId: uid, data };
 }
 

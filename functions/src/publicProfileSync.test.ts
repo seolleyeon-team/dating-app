@@ -233,3 +233,130 @@ test("public profile omits campusLifeZones when the user has none", () => {
   const onboarding = payload?.onboarding as Record<string, unknown> | undefined;
   assert.equal(onboarding?.campusLifeZones, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// B-07 — the public image is server-approved data only
+// ---------------------------------------------------------------------------
+
+const B07_APPROVED =
+  "https://firebasestorage.googleapis.com/v0/b/seolleyeon-final-approved-avatars/o/users%2Fu1%2Favatar%2Fa.png?alt=media&token=t";
+
+function publicImageValues(profile: Record<string, unknown> | null): string[] {
+  assert.ok(profile);
+  const onboarding = (profile.onboarding ?? {}) as Record<string, unknown>;
+  const avatar = (profile.avatar ?? {}) as Record<string, unknown>;
+  return [
+    profile.profileImageUrl,
+    onboarding.representativeImageUrl,
+    ...((onboarding.photoUrls as unknown[]) ?? []),
+    ...((onboarding.avatarUrls as unknown[]) ?? []),
+    avatar.approvedAvatarUrl,
+  ].filter((value): value is string => typeof value === "string");
+}
+
+test("B-07: an arbitrary external representativeImageUrl never reaches the public profile", () => {
+  for (const planted of [
+    "https://attacker.example/track.png?victim=1",
+    "http://203.0.113.7/pixel.gif",
+    "https://storage.googleapis.com/attacker-bucket/users/u1/avatar/a.png",
+    "https://firebasestorage.googleapis.com/v0/b/attacker.appspot.com/o/a.png?alt=media",
+  ]) {
+    // With an approved avatar: the avatar is public, the planted URL is not.
+    const withAvatar = buildPublicProfileFromUser("u1", {
+      nickname: "n",
+      avatar: { status: "approved", approvedAvatarUrl: B07_APPROVED },
+      onboarding: { nickname: "n", avatarUrls: [B07_APPROVED], representativeImageUrl: planted },
+    });
+    assert.deepEqual([...new Set(publicImageValues(withAvatar))], [B07_APPROVED]);
+    // Without any server-written image: nothing is public at all.
+    const without = buildPublicProfileFromUser("u1", {
+      nickname: "n",
+      onboarding: { nickname: "n", representativeImageUrl: planted },
+    });
+    assert.deepEqual(publicImageValues(without), []);
+    assert.equal(JSON.stringify(without).includes(planted), false);
+  }
+});
+
+test("B-07: an unapproved storage path never reaches the public profile", () => {
+  for (const planted of [
+    // Approved-avatar bucket, but another user's object / not the approved one.
+    "https://firebasestorage.googleapis.com/v0/b/seolleyeon-final-approved-avatars/o/users%2Fother%2Favatar%2Fz.png?alt=media&token=t",
+    // Candidate / job previews and private sources.
+    "https://storage.googleapis.com/seolleyeon-final-avatar-temp/users/u1/jobs/j/candidates/c.png",
+    "https://storage.googleapis.com/seolleyeon-final-private-source-photos/users/u1/source/a.jpg",
+    "gs://seolleyeon-final-approved-avatars/users/u1/avatar/a.png",
+  ]) {
+    const profile = buildPublicProfileFromUser("u1", {
+      nickname: "n",
+      avatar: { status: "approved", approvedAvatarUrl: B07_APPROVED },
+      onboarding: { nickname: "n", avatarUrls: [B07_APPROVED], representativeImageUrl: planted },
+    });
+    assert.equal(JSON.stringify(profile).includes(planted), false);
+    assert.deepEqual([...new Set(publicImageValues(profile))], [B07_APPROVED]);
+  }
+  // An avatar that is not approved yet is not public either, and neither is
+  // a representative URL that repeats it.
+  const pending = buildPublicProfileFromUser("u1", {
+    nickname: "n",
+    avatar: { status: "approval_copying", approvedAvatarUrl: B07_APPROVED },
+    onboarding: { nickname: "n", representativeImageUrl: B07_APPROVED },
+  });
+  assert.deepEqual(publicImageValues(pending), []);
+});
+
+test("B-07: the approved avatar is public, including a representative URL that repeats it", () => {
+  const profile = buildPublicProfileFromUser("u1", {
+    nickname: "n",
+    profileImageMode: "avatar",
+    avatar: { status: "approved", approvedAvatarUrl: B07_APPROVED, approvedAvatarStoragePath: "gs://x/y" },
+    onboarding: { nickname: "n", avatarUrls: [B07_APPROVED], representativeImageUrl: B07_APPROVED },
+  });
+  assert.ok(profile);
+  assert.equal(profile.profileImageUrl, B07_APPROVED);
+  assert.deepEqual(profile.avatar, { status: "approved", approvedAvatarUrl: B07_APPROVED });
+  const onboarding = profile.onboarding as Record<string, unknown>;
+  assert.deepEqual(onboarding.avatarUrls, [B07_APPROVED]);
+  assert.equal(onboarding.representativeImageUrl, B07_APPROVED);
+});
+
+test("B-07: a legacy user without an approved avatar keeps the existing server-written fallback", () => {
+  const legacy = "https://k.kakaocdn.net/dn/legacy/profile.jpg";
+  const legacyPhoto = "https://cdn.example/legacy-photo.png";
+  const profile = buildPublicProfileFromUser("u1", {
+    nickname: "legacy",
+    profileImageUrl: legacy,
+    onboarding: {
+      nickname: "legacy",
+      photoUrls: [legacyPhoto],
+      representativeImageUrl: legacyPhoto,
+    },
+  });
+  assert.ok(profile);
+  assert.equal(profile.profileImageUrl, legacy);
+  assert.equal(profile.avatar, null);
+  const onboarding = profile.onboarding as Record<string, unknown>;
+  assert.deepEqual(onboarding.photoUrls, [legacyPhoto]);
+  assert.equal(onboarding.representativeImageUrl, legacyPhoto);
+  // Fallback order without a top-level picture: avatarUrls, then photoUrls.
+  const listOnly = buildPublicProfileFromUser("u1", {
+    nickname: "legacy",
+    onboarding: { nickname: "legacy", photoUrls: [legacyPhoto] },
+  });
+  assert.equal(listOnly?.profileImageUrl, legacyPhoto);
+  // No image at all stays null (unchanged behaviour).
+  assert.equal(buildPublicProfileFromUser("u1", { nickname: "none" })?.profileImageUrl, null);
+});
+
+test("B-07: planting or changing a representative URL does not change the projection (no sync write)", () => {
+  const base = {
+    nickname: "n",
+    avatar: { status: "approved", approvedAvatarUrl: B07_APPROVED },
+    onboarding: { nickname: "n", avatarUrls: [B07_APPROVED] },
+  };
+  const planted = {
+    ...base,
+    onboarding: { ...base.onboarding, representativeImageUrl: "https://attacker.example/track.png" },
+  };
+  assert.equal(publicProfileProjectionChanged("u1", base, planted), false);
+});

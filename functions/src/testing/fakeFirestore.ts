@@ -198,9 +198,17 @@ export class FakeFirestore {
           if (operator === "in") return Array.isArray(value) && value.includes(data[field]);
           throw new Error(`FakeFirestore: unsupported operator ${operator}`);
         };
-        const query = (max: number | null) => ({
+        // orderBy() models ordering by document id only (the one ordering the
+        // code under test pages by); startAfter() takes a document id.
+        const query = (max: number | null, byId = false, after: string | null = null) => ({
           limit(n: number) {
-            return query(n);
+            return query(n, byId, after);
+          },
+          orderBy(_field: unknown) {
+            return query(max, true, after);
+          },
+          startAfter(id: string) {
+            return query(max, byId, id);
           },
           async get() {
             let docs = Array.from(self.db.entries())
@@ -211,6 +219,8 @@ export class FakeFirestore {
                 data: () => clone(data),
                 ref: self.collection(name).doc(path.slice(name.length + 1)),
               }));
+            if (byId) docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+            if (after !== null) docs = docs.filter((doc) => doc.id > after);
             if (max !== null) docs = docs.slice(0, max);
             return { docs, empty: docs.length === 0, size: docs.length };
           },

@@ -8,6 +8,8 @@ import '../../event/models/event_team_route_args.dart';
 import '../../chat/models/safety_stamp_follow_up_args.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
+import '../../../shared/utils/growing_query_window.dart';
+import '../../../shared/utils/keyed_stream.dart';
 import '../../../shared/utils/safe_catch.dart';
 import '../models/app_notification.dart';
 import '../services/notification_service.dart';
@@ -22,7 +24,13 @@ class _AppColors {
 }
 
 class NotificationListScreen extends StatefulWidget {
-  const NotificationListScreen({super.key});
+  const NotificationListScreen({
+    super.key,
+    @visibleForTesting this.notificationService,
+  });
+
+  /// Test seam. Production creates its own [NotificationService].
+  final NotificationService? notificationService;
 
   @override
   State<NotificationListScreen> createState() => _NotificationListScreenState();
@@ -30,7 +38,16 @@ class NotificationListScreen extends StatefulWidget {
 
 class _NotificationListScreenState extends State<NotificationListScreen> {
   final StorageService _storageService = StorageService();
-  final NotificationService _notificationService = NotificationService();
+  late final NotificationService _notificationService =
+      widget.notificationService ?? NotificationService();
+
+  // Notifications are never deleted. The list listens to the newest page and
+  // widens the window at the end of the list, and the listener is built once
+  // per (user id, window) instead of on every build().
+  final _window = GrowingQueryWindow(pageSize: NotificationService.pageSize);
+  final _notificationsStream =
+      KeyedStream<(String, int), List<AppNotification>>();
+  int _loadedCount = 0;
 
   String? _currentUserId;
   bool _isLoading = true;
@@ -202,6 +219,17 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     }
   }
 
+  bool _onScroll(ScrollNotification notification) {
+    if (notification.metrics.axis == Axis.vertical &&
+        _window.growIfNeeded(
+          loadedCount: _loadedCount,
+          extentAfter: notification.metrics.extentAfter,
+        )) {
+      setState(() {});
+    }
+    return false;
+  }
+
   Future<void> _markAllAsRead() async {
     final userId = _currentUserId;
     if (userId == null || userId.isEmpty) return;
@@ -311,7 +339,13 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       child: SafeArea(
         top: true,
         child: StreamBuilder<List<AppNotification>>(
-          stream: _notificationService.notificationsStream(userId),
+          stream: _notificationsStream.of(
+            (userId, _window.limit),
+            () => _notificationService.notificationsStream(
+              userId,
+              limit: _window.limit,
+            ),
+          ),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
@@ -334,180 +368,192 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
 
             final notifications = snapshot.data ?? const <AppNotification>[];
             final unreadCount = notifications.where((e) => !e.isRead).length;
+            _loadedCount = notifications.length;
+            // Older notifications outside the window are not counted.
+            final unreadSuffix = _window.mayHaveMore(notifications.length)
+                ? '개 이상'
+                : '개';
 
-            return CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: CupertinoColors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: _AppColors.gray200),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '새 알림',
-                            style: TextStyle(
-                              fontFamily: 'NanumSquareRound',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: _AppColors.textSub,
+            return NotificationListener<ScrollNotification>(
+              onNotification: _onScroll,
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: _AppColors.gray200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '새 알림',
+                              style: TextStyle(
+                                fontFamily: 'NanumSquareRound',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: _AppColors.textSub,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            unreadCount > 0
-                                ? '읽지 않은 알림이 $unreadCount개 있어요'
-                                : '모든 알림을 확인했어요',
-                            style: const TextStyle(
-                              fontFamily: 'NanumSquareRound',
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              color: _AppColors.textMain,
+                            const SizedBox(height: 6),
+                            Text(
+                              unreadCount > 0
+                                  ? '읽지 않은 알림이 $unreadCount$unreadSuffix 있어요'
+                                  : '모든 알림을 확인했어요',
+                              style: const TextStyle(
+                                fontFamily: 'NanumSquareRound',
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: _AppColors.textMain,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, 10, 20, 8),
-                    child: Text(
-                      '최근 알림',
-                      style: TextStyle(
-                        fontFamily: 'NanumSquareRound',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: _AppColors.textSub,
-                      ),
-                    ),
-                  ),
-                ),
-                if (notifications.isEmpty)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(20, 10, 20, 8),
                       child: Text(
-                        '아직 알림이 없어요',
+                        '최근 알림',
                         style: TextStyle(
                           fontFamily: 'NanumSquareRound',
-                          fontSize: 15,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                           color: _AppColors.textSub,
                         ),
                       ),
                     ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                    sliver: SliverList.separated(
-                      itemCount: notifications.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final notification = notifications[index];
+                  ),
+                  if (notifications.isEmpty)
+                    const SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Text(
+                          '아직 알림이 없어요',
+                          style: TextStyle(
+                            fontFamily: 'NanumSquareRound',
+                            fontSize: 15,
+                            color: _AppColors.textSub,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      sliver: SliverList.separated(
+                        itemCount: notifications.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final notification = notifications[index];
 
-                        return CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: () => _openNotification(notification),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: notification.isRead
-                                  ? CupertinoColors.white
-                                  : _AppColors.unreadBg,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: _AppColors.gray200),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: BoxDecoration(
-                                    color: _AppColors.gray100,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    _iconForType(notification.type),
-                                    size: 20,
-                                    color: _AppColors.primary,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              notification.title,
-                                              style: TextStyle(
-                                                fontFamily: 'NanumSquareRound',
-                                                fontSize: 14,
-                                                fontWeight: notification.isRead
-                                                    ? FontWeight.w600
-                                                    : FontWeight.w800,
-                                                color: _AppColors.textMain,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            _formatTime(notification.createdAt),
-                                            style: const TextStyle(
-                                              fontFamily: 'NanumSquareRound',
-                                              fontSize: 11,
-                                              color: _AppColors.textSub,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        notification.body,
-                                        style: const TextStyle(
-                                          fontFamily: 'NanumSquareRound',
-                                          fontSize: 13,
-                                          height: 1.45,
-                                          color: _AppColors.textSub,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (!notification.isRead) ...[
-                                  const SizedBox(width: 8),
+                          return CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () => _openNotification(notification),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: notification.isRead
+                                    ? CupertinoColors.white
+                                    : _AppColors.unreadBg,
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: _AppColors.gray200),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
                                   Container(
-                                    width: 8,
-                                    height: 8,
-                                    margin: const EdgeInsets.only(top: 6),
-                                    decoration: const BoxDecoration(
-                                      color: _AppColors.primary,
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: _AppColors.gray100,
                                       shape: BoxShape.circle,
                                     ),
+                                    child: Icon(
+                                      _iconForType(notification.type),
+                                      size: 20,
+                                      color: _AppColors.primary,
+                                    ),
                                   ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                notification.title,
+                                                style: TextStyle(
+                                                  fontFamily:
+                                                      'NanumSquareRound',
+                                                  fontSize: 14,
+                                                  fontWeight:
+                                                      notification.isRead
+                                                      ? FontWeight.w600
+                                                      : FontWeight.w800,
+                                                  color: _AppColors.textMain,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              _formatTime(
+                                                notification.createdAt,
+                                              ),
+                                              style: const TextStyle(
+                                                fontFamily: 'NanumSquareRound',
+                                                fontSize: 11,
+                                                color: _AppColors.textSub,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          notification.body,
+                                          style: const TextStyle(
+                                            fontFamily: 'NanumSquareRound',
+                                            fontSize: 13,
+                                            height: 1.45,
+                                            color: _AppColors.textSub,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (!notification.isRead) ...[
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      margin: const EdgeInsets.only(top: 6),
+                                      decoration: const BoxDecoration(
+                                        color: _AppColors.primary,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             );
           },
         ),

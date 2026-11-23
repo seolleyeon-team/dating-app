@@ -23,6 +23,7 @@ import type { DocumentSnapshot, Firestore, Timestamp } from "firebase-admin/fire
 import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 
+import { isRestrictedAccountData } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 import {
   campusLifeZoneEnforcedFromConfig,
@@ -32,6 +33,7 @@ import {
 } from "./campusLifeZoneActivation";
 import { readPersistedCampusLifeZones } from "./campusLifeZones";
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
+import { kstDateKeyCompact } from "./shared/kstDate";
 
 export const ONE_TO_ONE_REFRESH_PRODUCT = "one_to_one_daily_refresh";
 export const ONE_TO_ONE_REFRESH_COST_HEARTS = 5;
@@ -54,11 +56,8 @@ export const MYSTERY_FEED_ALGO_PRIORITY: readonly string[] = [
 
 /** KST(UTC+9) 기준 YYYYMMDD. 클라이언트 _generateKstDateKey 와 동일 규칙. */
 export function kstDateKeyOf(dateTime: Date): string {
-  const kst = new Date(dateTime.getTime() + 9 * 60 * 60 * 1000);
-  const y = kst.getUTCFullYear().toString();
-  const m = (kst.getUTCMonth() + 1).toString().padStart(2, "0");
-  const d = kst.getUTCDate().toString().padStart(2, "0");
-  return `${y}${m}${d}`;
+  // AUD-22: one KST calendar-day rule (shared/kstDate.ts).
+  return kstDateKeyCompact(dateTime);
 }
 
 export type RefreshCandidate = {
@@ -138,6 +137,9 @@ function isAccountActive(profile: Record<string, unknown>): boolean {
   if (status !== null && BLOCKED_ACCOUNT_STATUSES.has(status)) return false;
   if (profile.isDeleted === true) return false;
   if (profile.isSuspended === true) return false;
+  // AUD-22: a banned account or a deletion in progress is not a candidate.
+  // (`loginDisabled` alone is not checked: review fixtures carry it.)
+  if (isRestrictedAccountData(profile)) return false;
   return profile.isActive !== false;
 }
 
@@ -498,6 +500,82 @@ async function findEligibleCandidates(
   return eligible;
 }
 
+const REFRESH_ENTITLEMENT_DATE_KEY = /^\d{8}$/;
+
+/**
+ * The stored result of a completed refresh purchase for `dateKey`, or null
+ * when there is none (or its record cannot be replayed as it stands).
+ *
+ * The identity (date, algo, the three paid candidates) is the one the first
+ * purchase committed; the balance is the CURRENT one, read now — the balance
+ * stored at purchase time would be stale after any later spend.
+ */
+export async function loadCompletedRefreshReplay(
+  firestore: Firestore,
+  userId: string,
+  dateKey: string | null,
+): Promise<{
+  ok: true;
+  status: "already_purchased";
+  product: string;
+  dateKey: string;
+  algo: string;
+  costHearts: number;
+  remainingHearts: number;
+  displayRankStart: number;
+  displayRankEnd: number;
+  displayCandidateUids: string[];
+} | null> {
+  // The key becomes a document id: only the server's own YYYYMMDD shape.
+  if (dateKey === null || !REFRESH_ENTITLEMENT_DATE_KEY.test(dateKey)) {
+    return null;
+  }
+  const viewerRef = firestore.collection("users").doc(userId);
+  const [entitlementSnap, viewerSnap] = await Promise.all([
+    viewerRef.collection("recommendationRefreshes").doc(dateKey).get(),
+    viewerRef.get(),
+  ]);
+  if (!entitlementSnap.exists || !viewerSnap.exists) return null;
+  // Anything but a completed record goes through the transaction, which
+  // fails closed on an unknown entitlement state.
+  if (entitlementSnap.get("status") !== "completed") return null;
+
+  const storedUids = entitlementSnap.get("displayCandidateUids");
+  const displayCandidateUids = Array.isArray(storedUids)
+    ? storedUids.filter(
+        (uid): uid is string => typeof uid === "string" && uid.length > 0,
+      )
+    : [];
+  const algo = entitlementSnap.get("algo");
+  if (
+    displayCandidateUids.length === 0 ||
+    typeof algo !== "string" ||
+    algo.length === 0
+  ) {
+    // A record without its identity cannot be replayed from here; the
+    // transaction path keeps its existing behaviour for it.
+    return null;
+  }
+
+  const rawBalance = viewerSnap.get("heartBalance");
+  const remainingHearts =
+    typeof rawBalance === "number" && Number.isFinite(rawBalance) && rawBalance >= 0
+      ? Math.floor(rawBalance)
+      : 0;
+  return {
+    ok: true,
+    status: "already_purchased",
+    product: ONE_TO_ONE_REFRESH_PRODUCT,
+    dateKey,
+    algo,
+    costHearts: ONE_TO_ONE_REFRESH_COST_HEARTS,
+    remainingHearts,
+    displayRankStart: ONE_TO_ONE_REFRESH_DISPLAY_RANK_START,
+    displayRankEnd: ONE_TO_ONE_REFRESH_DISPLAY_RANK_END,
+    displayCandidateUids,
+  };
+}
+
 export function createPurchaseRecommendationRefreshFunction(
   firestore: Firestore,
   resolveUser: ResolveUser,
@@ -524,6 +602,29 @@ export function createPurchaseRecommendationRefreshFunction(
         user.userId,
         new Date(),
       );
+
+      // AUD-25: a completed purchase answers first. evaluateRefreshPurchase
+      // already puts "already purchased" before every other check, but the
+      // prechecks below run BEFORE that transaction: a retry of a purchase
+      // that succeeded (lost response, app restart) used to fail with
+      // refresh_unavailable / refresh_stale_feed as soon as the source was
+      // regenerated or one of the six candidates stopped being eligible —
+      // five hearts spent and an error on screen. The entitlement is keyed by
+      // the set the client is looking at, so that set is looked up first.
+      const replay = await loadCompletedRefreshReplay(
+        firestore,
+        user.userId,
+        expectedDateKey ?? resolved?.dateKey ?? null,
+      );
+      if (replay) {
+        logger.info("one-to-one recommendation refresh replayed", {
+          userId: user.userId,
+          dateKey: replay.dateKey,
+          status: replay.status,
+        });
+        return replay;
+      }
+
       if (!resolved) {
         throw new HttpsError("failed-precondition", "refresh_unavailable");
       }

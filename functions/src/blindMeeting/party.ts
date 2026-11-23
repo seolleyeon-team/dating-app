@@ -128,10 +128,9 @@ function profileSnapshot(userId: string, user: Record<string, unknown>) {
   return {
     userId,
     nickname: asStr(onboarding.nickname ?? user.nickname ?? "친구", "친구").slice(0, 40),
-    profileImageUrl: asStr(
-      photos[0] ?? user.profileImageUrl ?? onboarding.representativeImageUrl ?? "",
-      ""
-    ).slice(0, 2048),
+    // AUD-22 / B-07: server-owned image fields only; the onboarding
+    // representative image was client-writable and never written by a server.
+    profileImageUrl: asStr(photos[0] ?? user.profileImageUrl ?? "", "").slice(0, 2048),
     mbti: asStr(onboarding.mbti ?? "", "").slice(0, 8),
   };
 }

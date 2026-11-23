@@ -30,6 +30,7 @@ import {
   db,
   loadMeetingIcebreakerPolicy,
   loadPromptParticipant,
+  loadPromptParticipantOptedOut,
   loadSession,
   resolveSeasonMeetingRefs,
   type MeetingIcebreakerSessionDoc,
@@ -192,7 +193,12 @@ export async function verifyMeetingIcebreakerEntry(params: {
   }
 
   const participant = await loadPromptParticipant(sessionId, params.uid);
-  base.optedOut = participant?.optedOut === true;
+  // AUD-25: a decline recorded before activation is a stub that does not
+  // parse; report it as declined instead of "not declined".
+  base.optedOut =
+    participant != null
+      ? participant.optedOut
+      : await loadPromptParticipantOptedOut(sessionId, params.uid);
 
   const decision =
     session.meetingType === BLIND_TASTE_MEETING_TYPE

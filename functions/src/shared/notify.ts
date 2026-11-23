@@ -7,7 +7,7 @@
  * 알림 설정(users/{uid}.notificationSettings)과 idempotency 규칙이 어긋나지 않는다.
  */
 
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import {
   getMessaging,
   type AndroidConfig,
@@ -582,6 +582,14 @@ export function buildNotificationIdempotencyKey(
 }
 
 /**
+ * How long a notificationDispatchLog record must outlive its push. It only
+ * has to cover a redelivery of the same event (Eventarc retries for at most
+ * 24 h, Cloud Tasks for the queue retry window) and the same-day digest
+ * re-run; 90 days leaves a wide margin and keeps the ops dispatch view useful.
+ */
+export const NOTIFICATION_DISPATCH_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
  * idempotency key 기준으로 한 번만 푸시를 보낸다.
  *
  * 발송 기록은 notificationDispatchLog/{key} 에 남기고, 이미 있으면 건너뛴다.
@@ -611,6 +619,12 @@ export async function sendPushOnce(
       type: asString(payload.data.type, ""),
       userIds,
       createdAt: FieldValue.serverTimestamp(),
+      // AUD-25: nothing ever removed these records. `expireAt` lets a Firestore
+      // TTL policy on this field (not configured from source) drop them once
+      // the dedupe window is long past.
+      expireAt: Timestamp.fromMillis(
+        Date.now() + NOTIFICATION_DISPATCH_LOG_RETENTION_MS
+      ),
     });
     return true;
   });

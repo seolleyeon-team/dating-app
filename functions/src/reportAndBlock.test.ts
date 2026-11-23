@@ -4,8 +4,11 @@ import test from "node:test";
 import {
   MAX_REPORT_DETAILS_LENGTH,
   MAX_REPORT_REASON_LENGTH,
+  PAIR_LATEST_REPORT_FIELD,
   REPORT_AND_BLOCK_USER_CALLABLE_OPTIONS,
+  accountReportId,
   buildReportAndBlockPlan,
+  isOpenAccountReportOfPair,
 } from "./reportAndBlock";
 
 function plan(overrides: Record<string, unknown> = {}) {
@@ -143,4 +146,39 @@ test("oversized text is rejected instead of stored", () => {
 test("text at the length limit is accepted", () => {
   const reason = "x".repeat(MAX_REPORT_REASON_LENGTH);
   assert.equal(plan({ reason }).reportData.reason, reason);
+});
+
+test("REPORT-DEDUP: only an open account report of exactly this pair deduplicates", () => {
+  const open = { reporterId: "alice", reportedId: "bob", status: "pending", source: "profile", reportKind: "profile", contentSnapshot: null };
+  assert.equal(isOpenAccountReportOfPair(open, "alice", "bob"), true);
+  assert.equal(isOpenAccountReportOfPair({ ...open, status: "reviewing" }, "alice", "bob"), true);
+  // legacy account report: no reportKind / contentSnapshot fields at all
+  assert.equal(isOpenAccountReportOfPair({ reporterId: "alice", reportedId: "bob", status: "pending" }, "alice", "bob"), true);
+  for (const status of ["dismissed", "actioned", "", undefined, "PENDING", 1]) {
+    assert.equal(isOpenAccountReportOfPair({ ...open, status }, "alice", "bob"), false, String(status));
+  }
+  assert.equal(isOpenAccountReportOfPair(open, "alice", "carol"), false);
+  assert.equal(isOpenAccountReportOfPair(open, "bob", "alice"), false);
+  assert.equal(isOpenAccountReportOfPair(undefined, "alice", "bob"), false);
+});
+
+test("REPORT-DEDUP [NEW-20]: a Bamboo report is never an account report of the pair", () => {
+  const base = { reporterId: "alice", reportedId: "bob", status: "pending" };
+  for (const bamboo of [
+    { source: "bamboo_post", contentType: "bamboo_post", contentId: "p1", reportKind: "community" },
+    { source: "bamboo_comment" },
+    { contentType: "bamboo_post" },
+    { source: "profile", reportKind: "community" },
+    { source: "profile", contentId: "p1" },
+    { source: "profile", contentSnapshot: { title: "t" } },
+  ]) {
+    assert.equal(isOpenAccountReportOfPair({ ...base, ...bamboo }, "alice", "bob"), false, JSON.stringify(bamboo));
+  }
+});
+
+test("REPORT-DEDUP: the pair tracker id is deterministic, direction-sensitive and path-safe", () => {
+  assert.equal(accountReportId("alice", "bob"), accountReportId("alice", "bob"));
+  assert.notEqual(accountReportId("alice", "bob"), accountReportId("bob", "alice"));
+  assert.match(accountReportId("alice", "bob"), /^account_[0-9a-f]{40}$/);
+  assert.equal(PAIR_LATEST_REPORT_FIELD, "pairLatestReportId");
 });

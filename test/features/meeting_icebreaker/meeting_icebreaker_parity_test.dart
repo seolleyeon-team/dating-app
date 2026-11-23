@@ -234,15 +234,35 @@ void main() {
     });
 
     test('폭탄 숨겨진 시간 키가 규칙에서 차단된다', () {
+      // B-06: 규칙이 "금지 키 목록"에서 "허용 키 목록"으로 바뀌었다. 금지 키를
+      // 하나씩 나열하던 때는 새 이름으로 같은 값을 실어 보낼 수 있었다. 이제는
+      // 허용 목록에 없는 키가 전부 거부되므로, 숨겨진 폭탄 시간·토큰·참가자
+      // 식별자가 그 허용 목록에 들어 있지 않은지를 확인한다.
+      final allowList = RegExp(
+        r'function meetingIcebreakerAnalyticsParamsOk\(params\) \{\s*'
+        r'return params\.keys\(\)\.hasOnly\(\[([^\]]+)\]\)',
+      ).firstMatch(rules)?.group(1);
+      expect(allowList, isNotNull, reason: 'params 허용 목록 규칙이 없다');
+      final allowedKeys = RegExp(
+        "'([A-Za-z_]+)'",
+      ).allMatches(allowList!).map((match) => match.group(1)!).toSet();
+      expect(allowedKeys, isNotEmpty);
+      for (final forbidden in [
+        'hiddenSeconds',
+        'bombSeconds',
+        'fcmToken',
+        'userId',
+        'participantIds',
+        'place',
+      ]) {
+        expect(allowedKeys, isNot(contains(forbidden)), reason: forbidden);
+      }
       expect(
         rules,
-        contains("!('hiddenSeconds' in request.resource.data.params)"),
+        contains(
+          'meetingIcebreakerAnalyticsParamsOk(request.resource.data.params)',
+        ),
       );
-      expect(
-        rules,
-        contains("!('bombSeconds' in request.resource.data.params)"),
-      );
-      expect(rules, contains("!('fcmToken' in request.resource.data.params)"));
     });
   });
 

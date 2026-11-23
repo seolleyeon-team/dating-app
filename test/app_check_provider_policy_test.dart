@@ -12,8 +12,11 @@ void main() {
       );
     });
 
+    // B-09: this test used to pin the opposite (FORCE_APP_CHECK_DEBUG winning
+    // over a release build). A store-signed binary must never be able to
+    // select the debug provider, whatever defines it was compiled with.
     test(
-      'force debug overrides release default for local release APK tests',
+      'FORCE_APP_CHECK_DEBUG cannot select the debug provider in release',
       () {
         expect(
           shouldUseDebugAppCheckProvider(
@@ -21,7 +24,16 @@ void main() {
             isReleaseMode: true,
             forceDebugProvider: true,
           ),
-          isTrue,
+          isFalse,
+        );
+        expect(
+          shouldUseDebugAppCheckProvider(
+            isWeb: false,
+            isReleaseMode: true,
+            forceDebugProvider: true,
+            isDebugSignedAndroid: true,
+          ),
+          isFalse,
         );
       },
     );
@@ -121,7 +133,17 @@ void main() {
       () {
         final source = File('lib/main.dart').readAsStringSync();
 
-        expect(source, contains('APP_CHECK_ANDROID_DEBUG_TOKEN'));
+        // B-09: the token define is read in ReleaseBuildGuards (empty in a
+        // release build); main only consumes the guarded value.
+        expect(
+          source,
+          contains('ReleaseBuildGuards.androidAppCheckDebugToken'),
+        );
+        expect(source, isNot(contains("'APP_CHECK_ANDROID_DEBUG_TOKEN'")));
+        expect(
+          File('lib/shared/utils/release_build_guards.dart').readAsStringSync(),
+          contains("'APP_CHECK_ANDROID_DEBUG_TOKEN'"),
+        );
         expect(source, contains('AndroidDebugProvider(debugToken:'));
         expect(source, contains('AndroidPlayIntegrityProvider()'));
         expect(source, contains('AppleAppAttestProvider()'));

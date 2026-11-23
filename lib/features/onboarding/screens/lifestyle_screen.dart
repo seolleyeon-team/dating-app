@@ -17,6 +17,8 @@ import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../services/onboarding_step_save_guard.dart';
+import '../widgets/onboarding_save_failure.dart';
 
 // =============================================================================
 // 색상 상수
@@ -64,7 +66,17 @@ class LifestyleScreen extends StatefulWidget {
     this.totalSteps = 9,
     this.onBack,
     this.onNext,
+    @visibleForTesting this.saveLifestyle,
   });
+
+  /// Test seam for the step save. Production uses [OnboardingSaveHelper].
+  final Future<void> Function({
+    required String? drinking,
+    required String? smoking,
+    required String? exercise,
+    required String? religion,
+  })?
+  saveLifestyle;
 
   @override
   State<LifestyleScreen> createState() => _LifestyleScreenState();
@@ -77,7 +89,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
   Religion? _religion;
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
-  bool _isSavingOnExit = false;
+  final OnboardingStepSaveGuard _saveGuard = OnboardingStepSaveGuard();
 
   @override
   void initState() {
@@ -127,28 +139,52 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _saveCurrentLifestyle() async {
-    if (_isSavingOnExit) return;
-    _isSavingOnExit = true;
-    try {
-      await OnboardingSaveHelper.saveLifestyle(
-        drinking: _drinking?.name,
-        smoking: _smoking?.name,
-        exercise: _exercise?.name,
-        religion: _religion?.name,
-      );
-    } finally {
-      _isSavingOnExit = false;
-    }
+  Future<OnboardingStepSaveOutcome> _saveCurrentLifestyle() {
+    final drinking = _drinking?.name;
+    final smoking = _smoking?.name;
+    final exercise = _exercise?.name;
+    final religion = _religion?.name;
+    return _saveGuard.run(
+      () => (widget.saveLifestyle ?? OnboardingSaveHelper.saveLifestyle)(
+        drinking: drinking,
+        smoking: smoking,
+        exercise: exercise,
+        religion: religion,
+      ),
+      tag: 'LifestyleSave',
+    );
   }
 
   Future<void> _handleBack() async {
-    await _saveCurrentLifestyle();
+    final outcome = await _saveCurrentLifestyle();
+    // A save already running belongs to the tap that started it.
+    if (outcome == OnboardingStepSaveOutcome.alreadyRunning) return;
     if (!mounted) return;
+    // Saving on the way out is best effort: a failed save must not trap the
+    // user on this step.
     if (widget.onBack != null) {
       widget.onBack!();
     } else {
       Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _handleNext() async {
+    HapticFeedback.mediumImpact();
+    final outcome = await _saveCurrentLifestyle();
+    if (!mounted) return;
+    switch (outcome) {
+      case OnboardingStepSaveOutcome.alreadyRunning:
+        return;
+      case OnboardingStepSaveOutcome.failed:
+        await showOnboardingSaveFailure(context);
+        return;
+      case OnboardingStepSaveOutcome.saved:
+        if (widget.onNext != null) {
+          widget.onNext!.call(_drinking, _smoking, _exercise, _religion);
+        } else {
+          Navigator.of(context).pushNamed(RouteNames.onboardingMajor);
+        }
     }
   }
 
@@ -351,24 +387,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: _BottomButton(
-                  onNext: () async {
-                    HapticFeedback.mediumImpact();
-                    final navigator = Navigator.of(context);
-                    await _saveCurrentLifestyle();
-                    if (!mounted) return;
-                    if (widget.onNext != null) {
-                      widget.onNext!.call(
-                        _drinking,
-                        _smoking,
-                        _exercise,
-                        _religion,
-                      );
-                    } else {
-                      navigator.pushNamed(RouteNames.onboardingMajor);
-                    }
-                  },
-                ),
+                child: _BottomButton(onNext: _handleNext),
               ),
             ],
           ),

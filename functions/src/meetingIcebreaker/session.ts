@@ -24,8 +24,10 @@ import {
   db,
   loadActivePromptParticipants,
   loadMeetingIcebreakerPolicy,
+  loadSession,
   promptParticipantRef,
   readPromptParticipantDoc,
+  readPromptParticipantOptedOut,
   sessionRef,
 } from "./store";
 import {
@@ -140,7 +142,9 @@ export async function activateMeetingIcebreakerPrompts(params: {
     if (existing?.isActive === true) {
       return { result: "already_active", task: null };
     }
-    if (existing?.optedOut === true) {
+    // AUD-25: read the flag from the raw document. A decline recorded before
+    // activation is a stub that does not parse into `existing`.
+    if (existing?.optedOut === true || readPromptParticipantOptedOut(snap.data())) {
       return { result: "opted_out", task: null };
     }
     if (
@@ -418,14 +422,28 @@ export async function setMeetingIcebreakerOptOut(params: {
   const policy = await loadMeetingIcebreakerPolicy();
   const nowMs = Date.now();
   const participantRef = promptParticipantRef(params.sessionId, params.uid);
+  let clearedPreActivationOptOut = false;
 
   const task =
     await db().runTransaction<MeetingIcebreakerPromptTaskPayload | null>(
       async (tx) => {
+        clearedPreActivationOptOut = false;
         const snap = await tx.get(participantRef);
         if (!snap.exists) return null;
         const existing = readPromptParticipantDoc(params.uid, snap.data());
-        if (existing == null) return null;
+        if (existing == null) {
+          // AUD-25: the pre-activation decline stub. Now that activation
+          // honours it, withdrawing the decline has to clear it too.
+          if (readPromptParticipantOptedOut(snap.data())) {
+            tx.set(
+              participantRef,
+              { optedOut: false, updatedAt: FieldValue.serverTimestamp() },
+              { merge: true }
+            );
+            clearedPreActivationOptOut = true;
+          }
+          return null;
+        }
 
         const patch: Record<string, unknown> = {
           optedOut: false,
@@ -477,6 +495,22 @@ export async function setMeetingIcebreakerOptOut(params: {
 
   if (task != null) {
     await enqueueMeetingIcebreakerPromptTask(task, policy, nowMs);
+  }
+  if (clearedPreActivationOptOut) {
+    // The session may have been activated for the other participants while
+    // this user was declined; nothing else would activate them later.
+    const session = await loadSession(params.sessionId);
+    if (session != null && session.endedAt == null && session.stopReason == null) {
+      await activateMeetingIcebreakerPrompts({
+        meetingType: session.meetingType,
+        meetingId: session.meetingId,
+        uid: params.uid,
+        roomId: session.roomId,
+        promiseId: session.promiseId,
+        isAlcoholFree: session.isAlcoholFree,
+        policy,
+      });
+    }
   }
   return false;
 }

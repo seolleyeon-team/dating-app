@@ -207,6 +207,13 @@ test("matching and recommendation rules are participant or owner scoped", () => 
     "interactions must be participant-readable and from-user-bound create only",
     "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if (isCanonicalAppSession() || isPlayReviewSession()) && isAdultVerifiedCaller() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );
+  // B-08: the helper name above is kept, but the TARGET of an interaction may
+  // read only the reactions meant to reach them. A nope, a view or a message
+  // record stays private to its author.
+  assertContains(
+    "the target of an interaction reads likes only",
+    "function isInteractionParticipant(data) { return isSignedIn() && ( data.fromUserId == request.auth.uid || ( data.toUserId == request.auth.uid && data.action in ['like', 'super_like'] ) ); }"
+  );
   assertContains(
     "matches must be participant-readable and backend-created",
     "match /matches/{matchId} { allow read: if isMatchParticipant(resource.data); allow create: if false;"

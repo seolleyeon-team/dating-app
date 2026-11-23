@@ -102,3 +102,38 @@ test("P1-5 meeting apply: public profile and party member snapshots are anonymis
   assert.equal(members.u2.profileImageUrl, "https://x/b.jpg");
   assert.equal(Object.keys(party).some((k) => k.includes(".")), false, "no literal dotted key");
 });
+
+test("AUD-08 meeting plan: confirmed seats ride on the application close; a seat without an application still plans the close", () => {
+  const withSeat = planAccountDeletionMeetingOperations({
+    uid: "u1",
+    docs: { ...emptyMeetingDocs(), hasApplication: true, seatMeetingIds: ["m1"] },
+  });
+  assert.deepEqual(withSeat, [{ kind: "closeBlindMeetingApplication", seatMeetingIds: ["m1"] }]);
+  const seatOnly = planAccountDeletionMeetingOperations({
+    uid: "u1",
+    docs: { ...emptyMeetingDocs(), seatMeetingIds: ["m1", "m2"] },
+  });
+  assert.deepEqual(seatOnly, [{ kind: "closeBlindMeetingApplication", seatMeetingIds: ["m1", "m2"] }]);
+  // No seat: the operation keeps its previous shape (and the count is unchanged).
+  assert.deepEqual(
+    planAccountDeletionMeetingOperations({ uid: "u1", docs: { ...emptyMeetingDocs(), hasApplication: true, seatMeetingIds: [] } }),
+    [{ kind: "closeBlindMeetingApplication" }]
+  );
+  assert.equal(meetingCountsFromDocs({ ...emptyMeetingDocs(), seatMeetingIds: ["m1"] }).blindMeetingApplicationsClosed, 0);
+});
+
+test("AUD-08 meeting apply: closing is transactional and never creates an application document for an account that has none", async () => {
+  const { db, firestore } = fakeDb();
+  await applyMeetingCleanupOperation(firestore, "u1", { kind: "closeBlindMeetingApplication" });
+  assert.equal(db.has("blindMeetingApplications/u1"), false);
+
+  // An application bound to a meeting whose seat is already settled keeps its link (history) and is closed.
+  db.set("blindMeetingApplications/u2", { userId: "u2", status: "completed", open: false, meetingId: "m9", requestedDateKeys: ["2026-11-10"] });
+  db.set("blindMeetings/m9", { participantIds: ["u2", "u3"], serverStatus: "completed", groupChatId: "blind_m9" });
+  db.set("blindMeetings/m9/participants/u2", { userId: "u2", serverStatus: "attended" });
+  await applyMeetingCleanupOperation(firestore, "u2", { kind: "closeBlindMeetingApplication" });
+  const app = db.get("blindMeetingApplications/u2") ?? {};
+  assert.deepEqual([app.open, app.status, app.meetingId, app.accountDeleted], [false, "cancelled", "m9", true]);
+  assert.equal((db.get("blindMeetings/m9/participants/u2") ?? {}).serverStatus, "attended", "a settled seat is not rewritten");
+  assert.equal("replacementSearchActive" in (db.get("blindMeetings/m9") ?? {}), false, "no search is opened for a settled seat");
+});

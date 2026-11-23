@@ -12,6 +12,7 @@ import {
 import * as logger from "firebase-functions/logger";
 import { createHash, randomUUID } from "crypto";
 
+import { isActiveAccountData } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 import {
   buildStudentEmailBindingDoc,
@@ -378,7 +379,11 @@ function isRejoinRestricted(userData: Record<string, unknown>): boolean {
   return (
     (status !== null && REJOIN_RESTRICTED_STATUSES.has(status)) ||
     userData.loginDisabled === true ||
-    userData.isWithdrawn === true
+    userData.isWithdrawn === true ||
+    // NEW-24: the same classifier every callable uses, so a state another
+    // writer expresses differently (isActive:false, a differently cased
+    // status, the legacy flags) cannot re-enter through a fresh email login.
+    !isActiveAccountData(userData)
   );
 }
 

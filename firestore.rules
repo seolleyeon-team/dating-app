@@ -595,6 +595,13 @@ service cloud.firestore {
           ]);
     }
 
+    // B-07: onboarding.representativeImageUrl and onboarding.profileImageUrl
+    // are image URLs the server reads as a member's picture (public profile
+    // projection, chat participantInfo, friend snapshots). No client build
+    // has ever written them, but they were missing from the two lists below,
+    // so a modified client could point them at any external host and have
+    // other members' devices fetch it. They are server-owned like
+    // avatarUrls / photoUrls.
     function onboardingAvatarPhotoFieldsAbsent(data) {
       let onboarding = data.get('onboarding', {});
       return onboarding is map &&
@@ -606,6 +613,8 @@ service cloud.firestore {
             'avatarSourceSelectionVersion',
             'avatarUrls',
             'photoUrls',
+            'representativeImageUrl',
+            'profileImageUrl',
             'sourcePhotos',
             'sourcePhotoUrls',
             'sourcePhotoRefs',
@@ -673,6 +682,8 @@ service cloud.firestore {
             'avatarSourceSelectionVersion',
             'avatarUrls',
             'photoUrls',
+            'representativeImageUrl',
+            'profileImageUrl',
             'sourcePhotos',
             'sourcePhotoUrls',
             'sourcePhotoRefs',
@@ -1057,6 +1068,37 @@ service cloud.firestore {
           request.resource.data.requestedTo == resource.data.requestedTo;
     }
 
+    // B-12: the meeting time is chosen on the device, and the form only
+    // compares it with the DEVICE clock ("at least 10 minutes from now",
+    // chat_room_screen.dart). A phone whose clock is behind — or a modified
+    // client — could therefore schedule a meeting that is already over, which
+    // opens the arrival-stamp window and the timeout cancellation at once.
+    // Whenever a promise time is written (create, or changed by an edit) it
+    // must be a real timestamp in the server's future. An edit that leaves
+    // the time untouched (place only) is not affected.
+    function promiseDateTimeInServerFuture(data) {
+      return data.dateTime is timestamp && data.dateTime > request.time;
+    }
+
+    function promiseCreateDateTimeOk() {
+      return !request.resource.data.keys().hasAny(['dateTime']) ||
+          promiseDateTimeInServerFuture(request.resource.data);
+    }
+
+    function promiseUpdateDateTimeOk() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['dateTime']) ||
+          promiseDateTimeInServerFuture(request.resource.data);
+    }
+
+    function promiseScheduleUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng',
+        'placeThumbnailUrl'
+      ]);
+    }
+
     // chat_service.dart:updatePromise 는 상대방이 약속을 고치면
     // requestedBy/requestedTo 를 서로 뒤집는다(= 제안자가 바뀐다).
     // 이 경로만 예외로 허용하되, 새 제안자는 반드시 수정하는 본인이어야 한다.
@@ -1081,14 +1123,23 @@ service cloud.firestore {
         // 이미 끝났거나 진행 중인 약속의 내용은 아무도 못 고친다.
         // 안전도장이 기록된 뒤 "언제 어디서 만났는지"가 바뀌면
         // 사고 대응 기록으로서의 의미가 사라진다.
+        // B-12: a CONFIRMED promise's schedule is what both parties agreed
+        // to (and, for a season meeting, what the server observed). One
+        // party may not move its time or place while it stays confirmed —
+        // that needs the re-request below, which the other side must accept
+        // again (chat_service.dart updatePromise always re-requests).
         (request.resource.data.status == resource.data.status &&
           resource.data.status in ['requested', 'confirmed'] &&
+          (resource.data.status == 'requested' || promiseScheduleUnchanged()) &&
           promiseIsParty())
       ) || (
         // 수락: 받은 사람만, 아직 requested 일 때만.
+        // B-12: accepting confirms the schedule that was proposed; the
+        // recipient cannot swap in another time or place in the same write.
         request.resource.data.status == 'confirmed' &&
         resource.data.status == 'requested' &&
         promiseAuthorPairUnchanged() &&
+        promiseScheduleUnchanged() &&
         request.auth.uid == resource.data.requestedTo
       ) || (
         // 거절: 받은 사람만, 아직 requested 일 때만.
@@ -1102,14 +1153,25 @@ service cloud.firestore {
         // (main 의 cancelPromise 제품 계약 — 제3자는 여전히 불가.)
         request.resource.data.status == 'cancelled' &&
         resource.data.status in ['requested', 'confirmed'] &&
+        // B-12: the timeout reason is only reachable through the
+        // time-bound branch below.
+        request.resource.data.get('cancelledReason', null) != 'safety_stamp_timeout' &&
         promiseAuthorPairUnchanged() &&
         promiseIsParty()
       ) || (
         // 도착 안전도장 시한이 지나 자동 취소되는 경로는 당사자 누구나
         // 트리거할 수 있다 (chat_service.cancelExpiredIncompleteSafetyStamp).
+        //
+        // B-12: the client decides "the deadline passed" with the DEVICE
+        // clock. A phone whose clock runs ahead used to cancel a confirmed
+        // promise before the meeting. The deadline (promise time + 1 hour,
+        // safety_stamp_availability.dart isMeetupSafetyStampExpired) is now
+        // checked against the server time of the write.
         request.resource.data.status == 'cancelled' &&
         resource.data.status == 'confirmed' &&
         request.resource.data.cancelledReason == 'safety_stamp_timeout' &&
+        resource.data.dateTime is timestamp &&
+        request.time > resource.data.dateTime + duration.value(1, 'h') &&
         promiseAuthorPairUnchanged() &&
         promiseIsParty()
       ) || (
@@ -1139,11 +1201,21 @@ service cloud.firestore {
           );
     }
 
+    // B-08: the author reads every interaction they wrote. The TARGET reads
+    // only the reactions that are meant to reach them — like / super_like,
+    // which is what "received hearts" (watchLikesReceived) lists. A nope, a
+    // profile view and the `message` record are private to their author:
+    // the target could otherwise learn who passed on them or who looked at
+    // their profile. A list query by toUserId must therefore carry the
+    // `action in ['like', 'super_like']` filter (or a narrower one).
     function isInteractionParticipant(data) {
       return isSignedIn() &&
           (
             data.fromUserId == request.auth.uid ||
-            data.toUserId == request.auth.uid
+            (
+              data.toUserId == request.auth.uid &&
+              data.action in ['like', 'super_like']
+            )
           );
     }
 
@@ -1873,6 +1945,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           ]) &&
           request.resource.data.promiseId == promiseId &&
           isPromiseAuthorAtCreate(roomId) &&
+          promiseCreateDateTimeOk() &&
           request.resource.data.status == 'requested';
         allow update: if isExistingChatRoomParticipant(roomId) &&
           isAdultVerifiedCaller() &&
@@ -1881,6 +1954,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(promiseClientMutableKeys()) &&
           (promiseAuthorPairUnchanged() || promiseAuthorPairSwappedByEditor()) &&
+          promiseUpdateDateTimeOk() &&
           promiseStatusTransitionOk(roomId);
         allow delete: if false;
       }
@@ -2098,16 +2172,65 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // Analytics: 개인정보 없는 이벤트만 append. 조회는 서버/운영 전용.
+    //
+    // B-06: this collection used to accept unauthenticated creates of any
+    // size with arbitrary extra fields (only four param names were refused),
+    // i.e. anyone on the internet could fill the database. A create now needs
+    // a canonical app session (review traffic is an isolated data plane and
+    // stays out of production analytics), the exact document shape the
+    // client sink writes ({event, params, createdAt}), a server timestamp,
+    // only the allow-listed param keys of blind_meeting_analytics.dart with
+    // bounded scalar values, and — when the caller identifies itself — the
+    // hash of its OWN uid (BlindMeetingAnalytics.hashUserId).
+    function analyticsScalarOk(value, maxLength) {
+      return value is bool || value is number ||
+          (value is string && value.size() <= maxLength);
+    }
+
+    function analyticsEnvelopeOk(data) {
+      return data.keys().hasOnly(['event', 'params', 'createdAt']) &&
+          data.keys().hasAll(['event', 'params', 'createdAt']) &&
+          data.event is string &&
+          data.event.size() > 0 &&
+          data.event.size() <= 64 &&
+          data.params is map &&
+          data.createdAt == request.time;
+    }
+
+    function blindMeetingAnalyticsParamsOk(params) {
+      return params.keys().hasOnly([
+            'meetingId', 'isAlcoholFree', 'selectedDateCount',
+            'availabilityWindowDays', 'crossesMonthBoundary',
+            'relaxationChoice', 'addedDateCount', 'candidateDateCount',
+            'votedDateCount', 'stage', 'selectionCount', 'phase', 'urgent',
+            'algorithmVersion', 'ratingAverage', 'userHash'
+          ]) &&
+          analyticsScalarOk(params.get('meetingId', false), 128) &&
+          analyticsScalarOk(params.get('isAlcoholFree', false), 64) &&
+          analyticsScalarOk(params.get('selectedDateCount', false), 64) &&
+          analyticsScalarOk(params.get('availabilityWindowDays', false), 64) &&
+          analyticsScalarOk(params.get('crossesMonthBoundary', false), 64) &&
+          analyticsScalarOk(params.get('relaxationChoice', false), 64) &&
+          analyticsScalarOk(params.get('addedDateCount', false), 64) &&
+          analyticsScalarOk(params.get('candidateDateCount', false), 64) &&
+          analyticsScalarOk(params.get('votedDateCount', false), 64) &&
+          analyticsScalarOk(params.get('stage', false), 64) &&
+          analyticsScalarOk(params.get('selectionCount', false), 64) &&
+          analyticsScalarOk(params.get('phase', false), 64) &&
+          analyticsScalarOk(params.get('urgent', false), 64) &&
+          analyticsScalarOk(params.get('algorithmVersion', false), 64) &&
+          analyticsScalarOk(params.get('ratingAverage', false), 64) &&
+          (!params.keys().hasAny(['userHash']) ||
+            params.userHash ==
+              hashing.sha256(request.auth.uid).toHexString().lower()[0:16]);
+    }
+
     match /blindMeetingAnalytics/{eventId} {
       allow create: if
-          request.resource.data.event is string &&
-          request.resource.data.event.size() > 0 &&
+          isCanonicalAppSession() &&
+          analyticsEnvelopeOk(request.resource.data) &&
           request.resource.data.event.matches('^blind_meeting_[a-z0-9_]+$') &&
-          request.resource.data.params is map &&
-          !('nickname' in request.resource.data.params) &&
-          !('interests' in request.resource.data.params) &&
-          !('userId' in request.resource.data.params) &&
-          !('studentEmail' in request.resource.data.params);
+          blindMeetingAnalyticsParamsOk(request.resource.data.params);
       allow read, update, delete: if false;
     }
 
@@ -2153,19 +2276,37 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // Analytics: 개인정보와 폭탄 숨겨진 시간이 없는 이벤트만 append.
+    //
+    // B-06: same hardening as blindMeetingAnalytics — canonical app session,
+    // exact {event, params, createdAt} shape, server timestamp, and only the
+    // allow-listed param keys of meeting_icebreaker_analytics.dart with
+    // bounded scalar values. The allow-list replaces the former deny-list, so
+    // participant ids, places, tokens and the hidden bomb time cannot be
+    // smuggled under a new key name. The event carries no user identifier
+    // by design.
+    function meetingIcebreakerAnalyticsParamsOk(params) {
+      return params.keys().hasOnly([
+            'meeting_type', 'notification_sequence', 'game_type',
+            'spin_duration_bucket', 'prompt_stop_reason', 'entry_decision',
+            'reduce_motion', 'alcohol_free_copy', 'audio_stage'
+          ]) &&
+          analyticsScalarOk(params.get('meeting_type', false), 64) &&
+          analyticsScalarOk(params.get('notification_sequence', false), 64) &&
+          analyticsScalarOk(params.get('game_type', false), 64) &&
+          analyticsScalarOk(params.get('spin_duration_bucket', false), 64) &&
+          analyticsScalarOk(params.get('prompt_stop_reason', false), 64) &&
+          analyticsScalarOk(params.get('entry_decision', false), 64) &&
+          analyticsScalarOk(params.get('reduce_motion', false), 64) &&
+          analyticsScalarOk(params.get('alcohol_free_copy', false), 64) &&
+          analyticsScalarOk(params.get('audio_stage', false), 64);
+    }
+
     match /meetingIcebreakerAnalytics/{eventId} {
       allow create: if
-          request.resource.data.event is string &&
-          request.resource.data.event.size() > 0 &&
+          isCanonicalAppSession() &&
+          analyticsEnvelopeOk(request.resource.data) &&
           request.resource.data.event.matches('^(meeting_icebreaker|meeting_roulette|meeting_game|bomb_timer)_[a-z0-9_]+$') &&
-          request.resource.data.params is map &&
-          !('nickname' in request.resource.data.params) &&
-          !('userId' in request.resource.data.params) &&
-          !('participantIds' in request.resource.data.params) &&
-          !('place' in request.resource.data.params) &&
-          !('hiddenSeconds' in request.resource.data.params) &&
-          !('bombSeconds' in request.resource.data.params) &&
-          !('fcmToken' in request.resource.data.params);
+          meetingIcebreakerAnalyticsParamsOk(request.resource.data.params);
       allow read, update, delete: if false;
     }
 

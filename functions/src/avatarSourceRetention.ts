@@ -1,6 +1,7 @@
 ﻿import { createHash, randomBytes } from "crypto";
 import { getStorage } from "firebase-admin/storage";
 import {
+  FieldPath,
   FieldValue,
   Timestamp,
   type Firestore,
@@ -17,6 +18,12 @@ import {
 const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos";
 const SOURCE_RETENTION_STATE_COLLECTION = "avatarSourceRetentionStates";
 const SOURCE_RETENTION_EVENTS_COLLECTION = "avatarSourceRetentionEvents";
+/** Resume point of the recovery scan (only written when a run stops early). */
+export const RECOVERY_CHECKPOINT_COLLECTION = "schedulerCheckpoints";
+export const RECOVERY_CHECKPOINT_ID = "recoverAvatarSourceRetention";
+const RECOVERY_SCAN_PAGE_SIZE = 100;
+const RECOVERY_MAX_SCAN = 2000;
+const RECOVERY_TIME_BUDGET_MS = 90_000;
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const MAX_SOURCE_DELETION_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [
@@ -936,37 +943,112 @@ export async function executeAvatarSourceRetention(params: {
  */
 export async function recoverAvatarSourceRetentionDeletions(params: {
   firestore: Firestore;
+  /** Max DUE state documents evaluated per run (the destructive work cap). */
   limit?: number;
   deleteObject?: DeleteRetainedObject;
+  /** State documents read per query page. */
+  scanPageSize?: number;
+  /** Max state documents read per run. */
+  maxScan?: number;
+  timeBudgetMs?: number;
+  nowMs?: () => number;
 }): Promise<AvatarSourceRetentionRecoverySummary> {
   const now = Timestamp.now();
-  const snap = await params.firestore
-    .collection(SOURCE_RETENTION_STATE_COLLECTION)
-    .where("status", "in", ["deleting", "retryable_failed", "stale", "deferred"])
-    .limit(params.limit ?? 25)
-    .get();
+  const nowMs = params.nowMs ?? (() => Date.now());
+  const startedAtMs = nowMs();
+  const dueLimit = Math.max(1, params.limit ?? 25);
+  const pageSize = Math.max(1, params.scanPageSize ?? RECOVERY_SCAN_PAGE_SIZE);
+  const maxScan = Math.max(1, params.maxScan ?? RECOVERY_MAX_SCAN);
+  const timeBudgetMs = params.timeBudgetMs ?? RECOVERY_TIME_BUDGET_MS;
+  const states = params.firestore.collection(SOURCE_RETENTION_STATE_COLLECTION);
+  const checkpointRef = params.firestore
+    .collection(RECOVERY_CHECKPOINT_COLLECTION)
+    .doc(RECOVERY_CHECKPOINT_ID);
+
+  // AUD-09: this used to read `limit(25)` with no cursor — the same 25 state
+  // documents every run. Documents that are not due yet (a deferred source
+  // waits up to the recovery grace) or that re-plan to "skip" every time stay
+  // in a retry-eligible status, so once 25 of them sorted first, a source
+  // whose deletion deadline had passed was never reached.
+  //
+  // Now the whole retry-eligible set is walked in document-id pages. Documents
+  // that are not due cost one read and no longer use up the work cap. When
+  // the cap or the budget stops a run, the id it stopped at is stored and the
+  // next run continues behind it (wrapping around), so every due document is
+  // reached within a bounded number of runs. Skipped documents are still
+  // never written to, and a run that finishes its pass writes nothing.
+  const storedCursor = asString((await checkpointRef.get()).get("cursor"));
+  const startAfterId = storedCursor.length > 0 ? storedCursor : null;
+
   const summary: AvatarSourceRetentionRecoverySummary = {
-    scanned: snap.docs.length,
+    scanned: 0,
     due: 0,
     claimed: 0,
     skipped: 0,
   };
-  for (const doc of snap.docs) {
-    const data = readMap(doc.data());
-    if (!dueForRetry(data, now)) continue;
-    const uid = asString(data.uid);
-    const jobId = asString(data.jobId);
-    if (!uid || !jobId) continue;
-    summary.due += 1;
-    const result = await executeAvatarSourceRetention({
-      firestore: params.firestore,
-      uid,
-      jobId,
-      trigger: "avatar_job",
-      deleteObject: params.deleteObject,
-    });
-    if (result === "claimed") summary.claimed += 1;
-    else summary.skipped += 1;
+
+  let after: string | null = startAfterId;
+  // Second leg of a resumed pass: from the first id up to the stored cursor.
+  let wrapped = startAfterId === null;
+  let stoppedAtId: string | null = null;
+  let passComplete = false;
+
+  scan: for (;;) {
+    let query = states
+      .where("status", "in", ["deleting", "retryable_failed", "stale", "deferred"])
+      .orderBy(FieldPath.documentId())
+      .limit(pageSize);
+    if (after) query = query.startAfter(after);
+    const page = await query.get();
+
+    let reachedStart = false;
+    for (const doc of page.docs) {
+      if (wrapped && startAfterId !== null && doc.id > startAfterId) {
+        reachedStart = true;
+        break;
+      }
+      if (
+        summary.due >= dueLimit ||
+        summary.scanned >= maxScan ||
+        nowMs() - startedAtMs >= timeBudgetMs
+      ) {
+        break scan;
+      }
+      summary.scanned += 1;
+      stoppedAtId = doc.id;
+      const data = readMap(doc.data());
+      if (!dueForRetry(data, now)) continue;
+      const uid = asString(data.uid);
+      const jobId = asString(data.jobId);
+      if (!uid || !jobId) continue;
+      summary.due += 1;
+      const result = await executeAvatarSourceRetention({
+        firestore: params.firestore,
+        uid,
+        jobId,
+        trigger: "avatar_job",
+        deleteObject: params.deleteObject,
+      });
+      if (result === "claimed") summary.claimed += 1;
+      else summary.skipped += 1;
+    }
+
+    if (reachedStart || page.docs.length < pageSize) {
+      if (!wrapped) {
+        wrapped = true;
+        after = null;
+        continue;
+      }
+      passComplete = true;
+      break;
+    }
+    after = page.docs[page.docs.length - 1].id;
+  }
+
+  if (!passComplete && stoppedAtId !== null) {
+    await checkpointRef.set({ cursor: stoppedAtId, updatedAt: FieldValue.serverTimestamp() });
+  } else if (passComplete && startAfterId !== null) {
+    await checkpointRef.set({ cursor: null, updatedAt: FieldValue.serverTimestamp() });
   }
   return summary;
 }
@@ -1039,7 +1121,9 @@ export function createClipEmbeddingSourceRetentionTrigger(firestore: Firestore) 
 }
 
 export function createAvatarSourceRetentionRecoveryTrigger(firestore: Firestore) {
-  return onSchedule("every 15 minutes", async () => {
+  // AUD-09: explicit timeout (was the default 60 s); the scan stops itself at
+  // RECOVERY_TIME_BUDGET_MS and resumes on the next run.
+  return onSchedule({ schedule: "every 15 minutes", timeoutSeconds: 180 }, async () => {
     const startedAt = Date.now();
     const summary = await recoverAvatarSourceRetentionDeletions({ firestore });
     // Always log the run shape (counts only, no identifiers) so an operator can

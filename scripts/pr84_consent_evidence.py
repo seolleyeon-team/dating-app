@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 
@@ -52,7 +52,11 @@ def _parse_uid_photo_rows(text: str) -> list[str]:
             continue
         uid, photo = line.split("=", 1)
         uid = uid.strip().strip("<>")
-        photo_file = Path(photo.strip()).name
+        # The consent map is written on operator machines and carries Windows
+        # paths (`C:\...\photo.jpg`). `Path` follows the host OS, so on Linux
+        # the whole Windows path was kept as the "file name" and no row ever
+        # matched. PureWindowsPath splits on both separators on every OS.
+        photo_file = PureWindowsPath(photo.strip()).name
         if uid and photo_file:
             rows.append(f"{uid}={photo_file}")
     return rows

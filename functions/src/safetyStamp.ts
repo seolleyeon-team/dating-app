@@ -24,6 +24,7 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { requireActiveAccount } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 import { isSingleDocumentId } from "./shared/docId";
 
@@ -136,6 +137,83 @@ export function stampsMatchCurrentPromise(
   return stampedFor === current;
 }
 
+/** 도장을 찍을 수 있는 약속 상태 (클라이언트 isOpenableSafetyStampStatus 와 같다). */
+export const SAFETY_STAMP_OPENABLE_PROMISE_STATUSES = ["confirmed", "in_progress"];
+
+// ---------------------------------------------------------------------------
+// B-12 — 도장 가능 시간은 서버 시계로 판정한다.
+//
+// 시간 창은 클라이언트(safety_stamp_availability.dart)가 단말 시계로만
+// 확인했다. 단말 시계를 약속 시각으로 돌리거나 callable 을 직접 부르면
+// 약속 며칠 전에도 "도착" 도장을 찍을 수 있었고, 그 도장은 시즌 미팅의
+// 노쇼 판정(accused_checked_in)과 룰렛 게이트가 그대로 신뢰한다.
+//
+// 창 자체는 제품 정책 그대로다 (약속 10분 전 ~ 약속 후 1시간, 헤어짐 도장은
+// 만남 확인 후 24시간). 단말 시계가 조금 어긋난 정상 사용자가 버튼은 열렸는데
+// 서버에서 거절되는 일을 줄이기 위해 양쪽에 짧은 허용 오차만 둔다.
+// ---------------------------------------------------------------------------
+export const SAFETY_STAMP_MEETUP_OPEN_BEFORE_MS = 10 * 60 * 1000;
+export const SAFETY_STAMP_MEETUP_CLOSE_AFTER_MS = 60 * 60 * 1000;
+export const SAFETY_STAMP_GOODBYE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const SAFETY_STAMP_CLOCK_SKEW_GRACE_MS = 5 * 60 * 1000;
+
+export type SafetyStampWindowDecision =
+  | { ok: true }
+  | {
+    ok: false;
+    reason:
+      | "promise_time_missing"
+      | "too_early"
+      | "too_late"
+      | "meetup_not_completed";
+  };
+
+/**
+ * 서버 시각 `nowMs` 에 이 단계의 도장을 받을 수 있는지.
+ *
+ * 입력은 모두 서버가 가진 값이다: 약속 문서의 dateTime, 서버가 기록한
+ * meetupCompletedAt, 서버 시계. 요청에 실린 시각은 쓰지 않는다.
+ */
+export function evaluateSafetyStampWindow(params: {
+  phase: SafetyStampPhase;
+  nowMs: number;
+  promiseDateTime: unknown;
+  meetupCompletedAt: unknown;
+}): SafetyStampWindowDecision {
+  const grace = SAFETY_STAMP_CLOCK_SKEW_GRACE_MS;
+  if (params.phase === "goodbye") {
+    const completedMs = promiseDateTimeMs(params.meetupCompletedAt);
+    if (completedMs == null) return { ok: false, reason: "meetup_not_completed" };
+    if (params.nowMs > completedMs + SAFETY_STAMP_GOODBYE_WINDOW_MS + grace) {
+      return { ok: false, reason: "too_late" };
+    }
+    return { ok: true };
+  }
+  const startMs = promiseDateTimeMs(params.promiseDateTime);
+  if (startMs == null) return { ok: false, reason: "promise_time_missing" };
+  if (params.nowMs < startMs - SAFETY_STAMP_MEETUP_OPEN_BEFORE_MS - grace) {
+    return { ok: false, reason: "too_early" };
+  }
+  if (params.nowMs > startMs + SAFETY_STAMP_MEETUP_CLOSE_AFTER_MS + grace) {
+    return { ok: false, reason: "too_late" };
+  }
+  return { ok: true };
+}
+
+function safetyStampWindowError(
+  reason: Exclude<SafetyStampWindowDecision, { ok: true }>["reason"]
+): HttpsError {
+  const message =
+    reason === "too_early"
+      ? "안전도장은 약속 10분 전부터 사용할 수 있어요."
+      : reason === "too_late"
+        ? "안전도장을 사용할 수 있는 시간이 지났어요."
+        : reason === "promise_time_missing"
+          ? "약속 시간이 확인되지 않아 안전도장을 사용할 수 없어요."
+          : "만남 인증이 아직 완료되지 않았습니다.";
+  return new HttpsError("failed-precondition", message, { reason });
+}
+
 export type SafetyStampResult = {
   ok: true;
   /** 이미 찍혀 있어 side effect 없이 끝난 경우. */
@@ -158,6 +236,8 @@ export const submitSafetyStamp = onCall(
     if (uid.length === 0) {
       throw new HttpsError("unauthenticated", "로그인이 필요해요.");
     }
+    // NEW-24: state is read from Firestore on every call, never from the token.
+    await requireActiveAccount(db(), uid);
 
     const data = isRecord(request.data) ? request.data : {};
     const roomId = asTrimmed(data.roomId);
@@ -218,6 +298,15 @@ export const submitSafetyStamp = onCall(
           "이미 종료된 약속이에요."
         );
       }
+      // B-12: 확정되지 않은 약속(requested)에는 도장을 받지 않는다. 방의
+      // activePromise 미러는 참가자가 쓸 수 있으므로, 미러만 맞춰 놓고
+      // 수락되지 않은 약속에 도장을 찍는 경로를 닫는다.
+      if (!SAFETY_STAMP_OPENABLE_PROMISE_STATUSES.includes(promiseStatus)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "확정된 약속에서만 안전도장을 사용할 수 있어요."
+        );
+      }
 
       // 활성 약속과 일치하는지 확인한다 (미러를 권한 판단에 쓰지는 않는다).
       const activePromiseRaw = room.activePromise;
@@ -267,6 +356,25 @@ export const submitSafetyStamp = onCall(
           phase,
           phaseCompleted: [...participantIds].every((id) => target.has(id)),
         };
+      }
+
+      // B-12: 새 도장은 서버 시계 기준 시간 창 안에서만 받는다. 이미 찍힌
+      // 도장의 재전송(위)은 창이 닫힌 뒤에도 같은 결과를 돌려준다.
+      const window = evaluateSafetyStampWindow({
+        phase,
+        nowMs: Date.now(),
+        promiseDateTime: promise.dateTime,
+        meetupCompletedAt:
+          safetyStamp.meetupCompletedAt ?? promise.meetupCompletedAt,
+      });
+      if (!window.ok) {
+        logger.info("safety stamp refused: outside server time window", {
+          roomId,
+          promiseId,
+          phase,
+          reason: window.reason,
+        });
+        throw safetyStampWindowError(window.reason);
       }
       target.add(uid);
 
@@ -418,6 +526,8 @@ export const submitSafetyStampFollowUp = onCall(
     if (uid.length === 0) {
       throw new HttpsError("unauthenticated", "로그인이 필요해요.");
     }
+    // NEW-24: state is read from Firestore on every call, never from the token.
+    await requireActiveAccount(db(), uid);
 
     const data = isRecord(request.data) ? request.data : {};
     const roomId = asTrimmed(data.roomId);

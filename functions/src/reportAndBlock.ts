@@ -17,6 +17,13 @@
  *                        account-existence oracle), bounded `source`, one
  *                        open report per reporter→reported pair, report and
  *                        both blocks in one transaction
+ *
+ * REPORT-DEDUP (2026-11-21). "One open report per pair" held only for the
+ * first report: once the deterministic report was closed, every later call
+ * created a fresh random-id report without looking at the previous one, so
+ * several open reports of one pair could pile up. The deterministic report is
+ * now also the pair's tracker: it carries `pairLatestReportId`, read and
+ * written in the same transaction as the report and the blocks.
  * Drift from now on: the guarded deploy compares the live archive with the
  * reviewed tree before any redeploy (docs/audits/…/06-p1-13-new-20.md).
  */
@@ -48,19 +55,23 @@ export const REPORT_REVIEW_DEADLINE_MS = 24 * 60 * 60 * 1000;
 /** Screen tokens the app sends (profile, chat, profile_specific_detail_screen, …). */
 const REPORT_SOURCE = /^[a-z][a-z0-9_]{0,63}$/;
 const OPEN_REPORT_STATUSES = new Set(["pending", "reviewing"]);
+/**
+ * Upper bound on legacy open reports of one pair re-read inside the report
+ * transaction. More than one is already an anomaly; the first still-open one
+ * decides.
+ */
+const MAX_LEGACY_OPEN_REPORT_CANDIDATES = 10;
 
 /**
- * Moderation / account state that refuses every app callable (shared by
- * resolveAuthedAppUser). Mirrors decideCommunityReport's suspend/ban writes.
+ * Field on the pair's deterministic report that names the newest later report
+ * of the same pair (set when a report is filed after the first one was closed).
  */
-export function isSuspendedAccountData(data: Record<string, unknown>): boolean {
-  const status = typeof data.status === "string" ? data.status.trim().toLowerCase() : "";
-  return data.loginDisabled === true ||
-    data.isActive === false ||
-    ["banned", "blocked", "deleted", "suspended", "withdrawn"].includes(status);
-}
+export const PAIR_LATEST_REPORT_FIELD = "pairLatestReportId";
 
-/** Deterministic id of the open account report of one reporter → reported pair. */
+/**
+ * Deterministic id of the first account report of one reporter → reported
+ * pair. That document is also the pair's open-report tracker.
+ */
 export function accountReportId(reporterUid: string, reportedUid: string): string {
   return "account_" + createHash("sha256")
     .update(`account_report_v1\u0000${reporterUid}\u0000${reportedUid}`)
@@ -233,6 +244,24 @@ export function isBambooContentReport(contentType: unknown, source: unknown): bo
   return values.some((v) => v.startsWith("bamboo"));
 }
 
+/**
+ * True for an open account report of exactly this pair. A Bamboo report is
+ * never an account report: its `reportedId` is the anonymous author, so
+ * matching one here would answer "did X write what I reported?" (NEW-20).
+ */
+export function isOpenAccountReportOfPair(
+  data: Record<string, unknown> | undefined,
+  reporterUid: string,
+  reportedUid: string,
+): boolean {
+  if (!data) return false;
+  if (data.reporterId !== reporterUid || data.reportedId !== reportedUid) return false;
+  if (!OPEN_REPORT_STATUSES.has(asString(data.status))) return false;
+  if (isBambooContentReport(data.contentType, data.source)) return false;
+  if (data.reportKind === "community") return false;
+  return data.contentId == null && data.contentSnapshot == null;
+}
+
 function getCallableData(request: CallableRequest<unknown>): Record<string, unknown> {
   return isRecord(request.data) ? request.data : {};
 }
@@ -286,16 +315,40 @@ export function createReportAndBlockUserFunction(
       const reporterPartition = dataPartitionOf(user.data);
       const reportedRef = firestore.collection("users").doc(plan.reportedUid);
       // One open report per (reporter, reported) pair: a retry or a repeated
-      // report while moderation is still open returns the same report.
-      const openReportRef = firestore
-        .collection("reports")
-        .doc(accountReportId(plan.reporterUid, plan.reportedUid));
+      // report while moderation is still open returns the same report. The
+      // deterministic report is the pair's tracker; every call reads it and
+      // every later report is recorded on it, so two concurrent calls always
+      // contend on that one document.
+      const reports = firestore.collection("reports");
+      const anchorRef = reports.doc(accountReportId(plan.reporterUid, plan.reportedUid));
+      const isOpenOfPair = (data: Record<string, unknown> | undefined) =>
+        isOpenAccountReportOfPair(data, plan.reporterUid, plan.reportedUid);
+
+      // Reports written before the tracker existed (random ids, no pointer)
+      // can only be found through the pair's history. That history is read
+      // here, BEFORE the transaction, and each open candidate is re-read by id
+      // inside it. A query inside the transaction locks its whole range:
+      // concurrent first reports of one pair then each held that range while
+      // creating a document inside it, and under load every one of them ran
+      // out of retries (seen on the first CI run of this change). Nothing is
+      // lost by reading it outside: every report created from now on is
+      // reachable through the tracker, which IS read in the transaction, so a
+      // legacy report can only be closed in between, never appear.
+      // Two equality filters need no composite index.
+      const legacyOpenRefs = (
+        await reports
+          .where("reporterId", "==", plan.reporterUid)
+          .where("reportedId", "==", plan.reportedUid)
+          .get()
+      ).docs
+        .filter((doc) => isOpenOfPair(doc.data() as Record<string, unknown>))
+        .map((doc) => doc.ref)
+        .slice(0, MAX_LEGACY_OPEN_REPORT_CANDIDATES);
 
       return firestore.runTransaction(async (tx) => {
-        const [reportedSnap, openSnap] = await Promise.all([
-          tx.get(reportedRef),
-          tx.get(openReportRef),
-        ]);
+        // One read RPC for both documents: separate reads let a competing
+        // commit slip between them and wait on the first lock (AUD-17).
+        const [reportedSnap, anchorSnap] = await tx.getAll(reportedRef, anchorRef);
         if (!reportedSnap.exists) {
           throw new HttpsError("not-found", "신고할 사용자를 찾을 수 없어요.");
         }
@@ -311,12 +364,40 @@ export function createReportAndBlockUserFunction(
             "Account partitions do not match.",
           );
         }
-        const openStatus = openSnap.exists ? String(openSnap.get("status") ?? "") : "";
-        const reportRef = !openSnap.exists
-          ? openReportRef
-          : OPEN_REPORT_STATUSES.has(openStatus)
-            ? null
-            : firestore.collection("reports").doc();
+        const anchorData = anchorSnap.data() as Record<string, unknown> | undefined;
+        const trackedId = asString(anchorData?.[PAIR_LATEST_REPORT_FIELD]);
+        let openReportId: string | null = null;
+        if (isOpenOfPair(anchorData)) {
+          openReportId = anchorRef.id;
+        } else {
+          if (SAFE_PATH_SEGMENT.test(trackedId) && trackedId !== anchorRef.id) {
+            const tracked = await tx.get(reports.doc(trackedId));
+            if (isOpenOfPair(tracked.data() as Record<string, unknown> | undefined)) {
+              openReportId = tracked.id;
+            }
+          }
+          if (!openReportId) {
+            // Legacy candidates found before the transaction: confirm, by id,
+            // that one is still open now.
+            const candidates = legacyOpenRefs.filter(
+              (ref) => ref.id !== anchorRef.id && ref.id !== trackedId,
+            );
+            if (candidates.length > 0) {
+              const current = await tx.getAll(...candidates);
+              const legacy = current.find((doc) =>
+                isOpenOfPair(doc.data() as Record<string, unknown> | undefined));
+              if (legacy) openReportId = legacy.id;
+            }
+          }
+        }
+        const reportRef = openReportId
+          ? null
+          : anchorSnap.exists ? reports.doc() : anchorRef;
+        const latestId = reportRef?.id ?? openReportId;
+        if (anchorSnap.exists && latestId && latestId !== anchorRef.id && latestId !== trackedId) {
+          // History is kept: the closed first report only gains the pointer.
+          tx.update(anchorRef, { [PAIR_LATEST_REPORT_FIELD]: latestId });
+        }
         const now = FieldValue.serverTimestamp();
         if (reportRef) {
           // Production schema of the live moderation contract (recovered from
@@ -352,7 +433,7 @@ export function createReportAndBlockUserFunction(
           );
         }
         return {
-          reportId: (reportRef ?? openReportRef).id,
+          reportId: latestId ?? anchorRef.id,
           blockedBothDirections: true,
           ...(reportRef ? {} : { duplicate: true }),
         };

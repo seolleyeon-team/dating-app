@@ -67,6 +67,7 @@ import {
   isRecord,
 } from "./types";
 import { verifyMeetingIcebreakerEntry } from "./verify";
+import { requireActiveAccount } from "../accountStatePolicy";
 
 // =============================================================================
 // 1) 3:3 시즌 미팅 안전도장 → 반복 알림 활성 / 중단
@@ -491,6 +492,8 @@ export const meetingIcebreakerAction = onCall(
   MEETING_ICEBREAKER_CALLABLE_OPTIONS,
   async (request) => {
     const uid = requireUid(request);
+    // NEW-24: membership alone is not enough; a restricted account is refused.
+    await requireActiveAccount(db(), uid);
     const data = getCallableData(request);
     const action = asStr(data.action, "");
 

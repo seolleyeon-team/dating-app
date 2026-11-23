@@ -816,6 +816,23 @@ class BlindMeetingRepository {
     if (rejected != null) throw rejected;
   }
 
+  /// 후속 선택에서 실제로 고를 수 있는 상대 uid (서버 판정).
+  ///
+  /// 상대 팀 전원이 아니다. 교체됐거나 체크인하지 않은 참가자, 안전 조치 대상,
+  /// 차단 관계인 상대는 빠진다. 서버는 여기에 없는 uid 가 들어간 제출을
+  /// 거절하므로 화면은 이 목록만 선택 대상으로 보여야 한다.
+  Future<List<String>> loadFollowUpTargets(String meetingId) async {
+    final result = await _call('getBlindMeetingFollowUpTargets', {
+      'meetingId': meetingId,
+    });
+    final raw = result['targets'];
+    if (raw is! Iterable) return const <String>[];
+    return [
+      for (final item in raw)
+        if ((item?.toString().trim() ?? '').isNotEmpty) item.toString().trim(),
+    ];
+  }
+
   /// 상호 선택 결과 조회. 일방 선택 정보는 서버가 내려주지 않는다.
   Future<List<BlindMeetingMutualMatch>> loadMutualMatches(
     String meetingId,

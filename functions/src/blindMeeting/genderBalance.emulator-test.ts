@@ -1,10 +1,10 @@
 /**
  * 3:3 블라인드 취향 미팅 — 성비 불변식 E2E (Firestore Emulator).
  *
- * 실행 (repo root, Java 필요):
- *   npm --prefix functions run build
+ * 실행 (repo root, JDK 21):
+ *   npx tsc -p functions --outDir functions/.p02-lib
  *   firebase emulators:exec --only firestore --project demo-blind-gender \
- *     "node --test functions/lib/blindMeeting/genderBalance.emulator-test.js"
+ *     "node --test functions/.p02-lib/blindMeeting/genderBalance.emulator-test.js"
  *
  * 추천 알고리즘 단위 테스트만으로는 부족하다. 실제 서버 진입점
  * (runMatchingForDate) 을 돌려서 Firestore 에 **저장된** 미팅이
@@ -23,7 +23,7 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
   );
 }
 
-initializeApp({ projectId: "demo-blind-gender" });
+initializeApp({ projectId: process.env.GCLOUD_PROJECT ?? "demo-blind-gender" });
 
 import { runMatchingForDate } from "./orchestrator";
 import { readBlindMeetingGender } from "./genderBalance";
@@ -296,35 +296,104 @@ test("성별이 canonical 이 아닌 신청자는 어느 팀에도 배정되지 
 test("같은 사용자가 두 미팅에 동시에 들어가지 않는다", async () => {
   runSeq += 1;
   const dateKey = dateKeyInWindow(8);
-  const tag = `conc${runSeq}`;
-  await seedPool(6, 6, dateKey, tag);
+  // 실행마다 고유한 id. 같은 emulator 에서 앞선 실행이 만든 미팅이 아래
+  // 불변식(사용자당 미팅 1개)에 섞이면 안 된다.
+  const tag = `conc${runSeq}_${Date.now().toString(36)}`;
+  const seeds = await seedPool(6, 6, dateKey, tag);
 
-  // 같은 pool 을 두 worker 가 동시에 평가한다.
+  // 같은 pool 을 두 worker 가 동시에 평가한다. 어느 쪽도 예외로 끝나면 안 된다
+  // (claim 경합은 한쪽이 조용히 지는 것이지 매칭 실행 전체의 실패가 아니다).
   const [first, second] = await Promise.all([
     runMatchingForDate(dateKey),
     runMatchingForDate(dateKey),
   ]);
 
   const meetingIds = [...first, ...second];
-  const seen = new Set<string>();
+  assert.ok(meetingIds.length >= 1, "적어도 한 미팅은 만들어진다");
+  assert.equal(
+    new Set(meetingIds).size,
+    meetingIds.length,
+    "같은 미팅이 두 번 보고되면 안 된다 (중복 매칭 없음)"
+  );
+
+  // 불변식 1: 한 사용자는 최대 한 미팅. 반환값이 아니라 저장된 문서로 센다.
+  const assignedMeetingByUser = new Map<string, string>();
+  const storedMeetingIds = new Set<string>();
+  for (const seed of seeds) {
+    const mine = await db
+      .collection("blindMeetings")
+      .where("participantIds", "array-contains", seed.userId)
+      .get();
+    assert.ok(mine.size <= 1, `${seed.userId} 가 두 미팅에 들어갔다`);
+    if (mine.size === 1) {
+      assignedMeetingByUser.set(seed.userId, mine.docs[0].id);
+      storedMeetingIds.add(mine.docs[0].id);
+    }
+  }
+  assert.deepEqual(
+    [...storedMeetingIds].sort(),
+    [...meetingIds].sort(),
+    "저장된 미팅은 보고된 미팅과 정확히 같다 (진 claim 이 남긴 미팅 없음)"
+  );
+
+  // 불변식 2: 부분 확정 없음 — 미팅·참가자 6·공개 프로필 6·채팅방이 한 묶음.
   for (const meetingId of meetingIds) {
-    const meeting = (
-      await db.collection("blindMeetings").doc(meetingId).get()
-    ).data();
+    const meetingRef = db.collection("blindMeetings").doc(meetingId);
+    const meeting = (await meetingRef.get()).data();
     const participantIds = (meeting?.participantIds as string[]) ?? [];
     assert.equal(participantIds.length, 6);
+    assert.equal(new Set(participantIds).size, 6);
     assert.deepEqual(await persistedGenderCounts(participantIds), {
       male: 3,
       female: 3,
       unknown: 0,
     });
-    for (const userId of participantIds) {
-      assert.equal(
-        seen.has(userId),
-        false,
-        `${userId} 가 두 미팅에 들어갔다`
-      );
-      seen.add(userId);
+    const participantDocs = await meetingRef.collection("participants").get();
+    assert.equal(participantDocs.size, 6, "참가자 문서 6개");
+    for (const doc of participantDocs.docs) {
+      assert.equal(doc.data().serverStatus, "confirmed");
     }
+    assert.equal(
+      (await meetingRef.collection("publicProfiles").get()).size,
+      6,
+      "공개 프로필 6개"
+    );
+    const room = (
+      await db.collection("chat_rooms").doc(`blind_${meetingId}`).get()
+    ).data();
+    assert.deepEqual(
+      [...((room?.participantIds as string[]) ?? [])].sort(),
+      [...participantIds].sort(),
+      "채팅방 구성원 = 미팅 구성원"
+    );
+  }
+
+  // 불변식 3: 신청서는 자기 미팅에만 묶이고, 배정되지 않은 신청은 그대로 열려 있다.
+  // 불변식 4: 매칭은 하트를 건드리지 않는다 (이중 차감·환불 없음).
+  for (const seed of seeds) {
+    const application = (
+      await db.collection("blindMeetingApplications").doc(seed.userId).get()
+    ).data();
+    const assigned = assignedMeetingByUser.get(seed.userId);
+    if (assigned != null) {
+      assert.deepEqual(
+        [application?.open, application?.meetingId, application?.stage],
+        [false, assigned, "matched"],
+        `${seed.userId}: 신청서가 자기 미팅에 묶여 있다`
+      );
+    } else {
+      assert.equal(application?.open, true, `${seed.userId}: 여전히 대기 중`);
+      assert.ok(
+        application?.meetingId == null || application?.meetingId === "",
+        `${seed.userId}: 미팅에 묶이면 안 된다`
+      );
+    }
+    const ledger = await db
+      .collection("heartTransactions")
+      .where("uid", "==", seed.userId)
+      .get();
+    assert.equal(ledger.size, 0, `${seed.userId}: 하트 원장 변화 없음`);
+    const user = (await db.collection("users").doc(seed.userId).get()).data();
+    assert.equal(user?.heartBalance, undefined, `${seed.userId}: 잔액 필드 변화 없음`);
   }
 });

@@ -103,7 +103,7 @@ test("blind-meeting personal data: DNA/draft/membership/stats deleted, applicati
   ]);
 
   const docs = await loadAccountDeletionDocs(db, u);
-  assert.deepEqual(docs.meeting, { hasDna: true, hasDnaDraft: true, hasApplication: true, partyIds: [party], hasPartyMembership: true, hasStats: true, publicProfileMeetingIds: [meeting] });
+  assert.deepEqual(docs.meeting, { hasDna: true, hasDnaDraft: true, hasApplication: true, partyIds: [party], hasPartyMembership: true, hasStats: true, publicProfileMeetingIds: [meeting], seatMeetingIds: [] });
   for (const op of planAccountDeletionPiiOperations({ uid: u, docs })) {
     if (op.kind.startsWith("deleteBlindMeeting") || op.kind.startsWith("scrubBlindMeeting") || op.kind === "closeBlindMeetingApplication") {
       await applyMeetingCleanupOperation(db, u, op as never);

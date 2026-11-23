@@ -106,23 +106,32 @@ function departmentRecommendationExclusionRef(
     .doc(targetUid);
 }
 
-async function userIdsWithDepartment(
+/**
+ * Department peers with only the fields the pair decision needs. A projection
+ * still costs one read per peer but does not ship whole user documents.
+ */
+async function departmentPeers(
   firestore: Firestore,
   department: string,
   changedUid: string,
-): Promise<string[]> {
+): Promise<Map<string, RecordData>> {
   const users = firestore.collection("users");
+  const fields = [
+    "onboarding.department",
+    "department",
+    "privacySettings.avoidSameDepartment",
+  ];
   const [canonicalSnapshot, legacySnapshot] = await Promise.all([
-    users.where("onboarding.department", "==", department).get(),
-    users.where("department", "==", department).get(),
+    users.where("onboarding.department", "==", department).select(...fields).get(),
+    users.where("department", "==", department).select(...fields).get(),
   ]);
-  const userIds = new Set<string>();
+  const peers = new Map<string, RecordData>();
   for (const snapshot of [canonicalSnapshot, legacySnapshot]) {
     for (const doc of snapshot.docs) {
-      if (doc.id !== changedUid) userIds.add(doc.id);
+      if (doc.id !== changedUid) peers.set(doc.id, doc.data() as RecordData);
     }
   }
-  return [...userIds].sort();
+  return peers;
 }
 
 async function reconcileDepartmentPair(
@@ -174,6 +183,107 @@ async function reconcileDepartmentPair(
   });
 }
 
+export type DepartmentRecommendationReconcileSummary = {
+  /** false: neither the department nor the preference changed; nothing read. */
+  relevant: boolean;
+  /** Department peers read (one projected read each). */
+  peersRead: number;
+  /** Pair transactions run (2 reads + 2 writes each). */
+  pairsReconciled: number;
+  /** Pairs proven to need no write and therefore not touched. */
+  pairsSkipped: number;
+};
+
+/**
+ * A pair needs no transaction when nothing could have been materialized for
+ * it and nothing has to be: neither side asks for avoidance now, neither did
+ * under the changed user's previous state, and no exclusion document exists.
+ *
+ * B-14: every department/preference change (including every sign-up, where
+ * the department is set for the first time) used to run one transaction per
+ * department peer — two reads and two deletes of documents that did not
+ * exist. Pairs where avoidance is or was in play, and pairs that have a
+ * stored exclusion, still go through the same transaction as before.
+ */
+export function departmentPairNeedsReconcile(params: {
+  before: RecordData | null | undefined;
+  after: RecordData | null | undefined;
+  peer: RecordData | null | undefined;
+  exclusionExists: boolean;
+}): boolean {
+  return (
+    params.exclusionExists ||
+    shouldExcludeSameDepartment(params.after, params.peer) ||
+    shouldExcludeSameDepartment(params.before, params.peer)
+  );
+}
+
+export async function reconcileDepartmentRecommendationPrivacy(
+  firestore: Firestore,
+  changedUid: string,
+  before: RecordData | null | undefined,
+  after: RecordData | null | undefined,
+): Promise<DepartmentRecommendationReconcileSummary> {
+  const summary: DepartmentRecommendationReconcileSummary = {
+    relevant: false,
+    peersRead: 0,
+    pairsReconciled: 0,
+    pairsSkipped: 0,
+  };
+  if (!departmentRecommendationPrivacyChanged(before, after)) return summary;
+
+  const departments = departmentsToReconcile(before, after);
+  if (departments.length === 0) return summary;
+  summary.relevant = true;
+
+  const peers = new Map<string, RecordData>();
+  for (const department of departments) {
+    for (const [uid, data] of await departmentPeers(
+      firestore,
+      department,
+      changedUid,
+    )) {
+      peers.set(uid, data);
+    }
+  }
+  summary.peersRead = peers.size;
+
+  // Exclusions already stored for the changed user (ids only). A stored
+  // exclusion whose peer is no longer a department peer is reconciled too.
+  const existingSnapshot = await firestore
+    .collection(DEPARTMENT_RECOMMENDATION_EXCLUSION_COLLECTION)
+    .doc(changedUid)
+    .collection("targets")
+    .select()
+    .get();
+  const existing = new Set(existingSnapshot.docs.map((doc) => doc.id));
+
+  const targets = [...new Set([...peers.keys(), ...existing])]
+    .sort()
+    .filter((targetUid) => {
+      const needed = departmentPairNeedsReconcile({
+        before,
+        after,
+        peer: peers.get(targetUid) ?? null,
+        exclusionExists: existing.has(targetUid),
+      });
+      if (!needed) summary.pairsSkipped += 1;
+      return needed;
+    });
+
+  const concurrency = 20;
+  for (let offset = 0; offset < targets.length; offset += concurrency) {
+    const chunk = targets.slice(offset, offset + concurrency);
+    await Promise.all(
+      chunk.map((targetUid) =>
+        reconcileDepartmentPair(firestore, changedUid, targetUid),
+      ),
+    );
+    summary.pairsReconciled += chunk.length;
+  }
+  return summary;
+}
+
 /**
  * Materializes only pair IDs, never departments or preference values, into a
  * server-owned collection. The app can then remove stale model ranks without
@@ -192,31 +302,11 @@ export function createDepartmentRecommendationPrivacyTrigger(
     const after = event.data?.after?.exists
       ? (event.data.after.data() as RecordData)
       : null;
-    if (!departmentRecommendationPrivacyChanged(before, after)) return;
-
-    const departments = departmentsToReconcile(before, after);
-    if (departments.length === 0) return;
-
-    const targetUids = new Set<string>();
-    for (const department of departments) {
-      for (const uid of await userIdsWithDepartment(
-        firestore,
-        department,
-        changedUid,
-      )) {
-        targetUids.add(uid);
-      }
-    }
-
-    const targets = [...targetUids].sort();
-    const concurrency = 20;
-    for (let offset = 0; offset < targets.length; offset += concurrency) {
-      const chunk = targets.slice(offset, offset + concurrency);
-      await Promise.all(
-        chunk.map((targetUid) =>
-          reconcileDepartmentPair(firestore, changedUid, targetUid),
-        ),
-      );
-    }
+    await reconcileDepartmentRecommendationPrivacy(
+      firestore,
+      changedUid,
+      before,
+      after,
+    );
   });
 }

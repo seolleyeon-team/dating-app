@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../features/matching/services/recommendation_privacy_watch.dart';
 import '../shared/utils/privacy_log_utils.dart';
 import '../shared/utils/recommendation_eligibility.dart';
 import 'campus_life_zone_repair_service.dart';
@@ -65,12 +66,18 @@ class RecommendationFeedResult {
     this.profiles = const <AiRecommendedProfile>[],
     this.dateKey,
     this.source,
+    this.privacyFingerprint,
   });
 
   final RecommendationFeedStatus status;
   final List<AiRecommendedProfile> profiles;
   final String? dateKey;
   final String? source;
+
+  /// The viewer-side inputs this feed was filtered with (see
+  /// [RecommendationPrivacyFingerprint]). Null when the load ended before it
+  /// read them.
+  final String? privacyFingerprint;
 }
 
 // =============================================================================
@@ -114,57 +121,72 @@ class AiRecommendationService {
           .collection('targets')
           .get(const GetOptions(source: Source.server)),
     ]);
+    return {for (final snapshot in snapshots) ..._activeExclusionIds(snapshot)};
+  }
+
+  static Set<String> _activeExclusionIds(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
     final excluded = <String>{};
-    for (final snapshot in snapshots) {
-      for (final doc in snapshot.docs) {
-        final enabledBy = doc.data()['enabledBy'];
-        final active = doc.data()['active'] == true;
-        if (active ||
-            (enabledBy is Map &&
-                enabledBy.values.any((value) => value == true))) {
-          excluded.add(doc.id);
-        }
+    for (final doc in snapshot.docs) {
+      final enabledBy = doc.data()['enabledBy'];
+      final active = doc.data()['active'] == true;
+      if (active ||
+          (enabledBy is Map &&
+              enabledBy.values.any((value) => value == true))) {
+        excluded.add(doc.id);
       }
     }
     return excluded;
   }
 
+  /// The fields of the viewer's own `users/{uid}` document that decide which
+  /// cards the feed may show: exactly what [_hydrateProfiles] and
+  /// [fetchMysteryFeedResult] read from it, plus the whole `privacySettings`
+  /// map so that any privacy toggle counts.
+  ///
+  /// Everything else in that document (heart balance, last active time, push
+  /// token, ...) changes often and never changes the feed.
+  static String viewerRecommendationInputs(
+    Map<String, dynamic>? viewerProfile,
+  ) {
+    final zones = RecommendationEligibility.campusLifeZonesOf(
+      viewerProfile,
+    ).toList()..sort();
+    return RecommendationPrivacyFingerprint.canonical({
+      'campusLifeZones': zones,
+      'department': _departmentOf(viewerProfile),
+      'avoidSameDepartment': _avoidSameDepartmentEnabled(viewerProfile),
+      'privacySettings': viewerProfile?['privacySettings'],
+    });
+  }
+
   /// Keeps already-rendered cards from surviving an ON/OFF change made in a
   /// different tab or on the other member's device.
-  Stream<void> watchRecommendationPrivacyChanges(String uid) {
-    late final StreamController<void> controller;
-    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
-    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? exclusionsSub;
-    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
-    departmentExclusionsSub;
-
-    controller = StreamController<void>(
-      onListen: () {
-        userSub = _firestore
-            .collection('users')
-            .doc(uid)
-            .snapshots()
-            .listen((_) => controller.add(null), onError: controller.addError);
-        exclusionsSub = _firestore
-            .collection('recommendationExclusions')
-            .doc(uid)
-            .collection('targets')
-            .snapshots()
-            .listen((_) => controller.add(null), onError: controller.addError);
-        departmentExclusionsSub = _firestore
-            .collection('departmentRecommendationExclusions')
-            .doc(uid)
-            .collection('targets')
-            .snapshots()
-            .listen((_) => controller.add(null), onError: controller.addError);
-      },
-      onCancel: () async {
-        await userSub?.cancel();
-        await exclusionsSub?.cancel();
-        await departmentExclusionsSub?.cancel();
-      },
+  ///
+  /// Emits the current [RecommendationPrivacyFingerprint] once the three
+  /// sources have loaded, and again only when it changes. A snapshot of the
+  /// viewer document that touches no recommendation input emits nothing.
+  Stream<String> watchRecommendationPrivacyChanges(String uid) {
+    return watchRecommendationPrivacyFingerprints(
+      viewerInputs: _firestore
+          .collection('users')
+          .doc(uid)
+          .snapshots()
+          .map((snapshot) => viewerRecommendationInputs(snapshot.data())),
+      pairExclusions: _firestore
+          .collection('recommendationExclusions')
+          .doc(uid)
+          .collection('targets')
+          .snapshots()
+          .map(_activeExclusionIds),
+      departmentExclusions: _firestore
+          .collection('departmentRecommendationExclusions')
+          .doc(uid)
+          .collection('targets')
+          .snapshots()
+          .map(_activeExclusionIds),
     );
-    return controller.stream;
   }
 
   /// Watches only the small set of cards currently rendered. An account that
@@ -619,10 +641,15 @@ class AiRecommendationService {
         );
       }
 
+      final excludedUids = await _fetchRecommendationExcludedUids(uid);
       final blockedUids = <String>{
         ...await _fetchBlockedUids(uid),
-        ...await _fetchRecommendationExcludedUids(uid),
+        ...excludedUids,
       };
+      final privacyFingerprint = RecommendationPrivacyFingerprint.combine(
+        viewerRecommendationInputs(viewerProfile),
+        excludedUids,
+      );
 
       var result = await _fetchRawRecs(uid, 'rrf');
       var algoUsed = 'rrf';
@@ -647,8 +674,9 @@ class AiRecommendationService {
               enforcedObserved: CampusLifeZoneRepairService.enforcedObserved,
             ) &&
             viewerZones.isEmpty) {
-          return const RecommendationFeedResult(
+          return RecommendationFeedResult(
             status: RecommendationFeedStatus.campusLifeZoneRequired,
+            privacyFingerprint: privacyFingerprint,
           );
         }
 
@@ -670,11 +698,13 @@ class AiRecommendationService {
           profiles: profiles,
           dateKey: dateKey,
           source: algoUsed,
+          privacyFingerprint: privacyFingerprint,
         );
       }
       await _emptyFeedBecauseNoModelRecs('mystery_feed_no_modelRecs');
-      return const RecommendationFeedResult(
+      return RecommendationFeedResult(
         status: RecommendationFeedStatus.notGenerated,
+        privacyFingerprint: privacyFingerprint,
       );
     } catch (e) {
       debugPrint('fetchMysteryFeed Error: ${PrivacyLogUtils.errorSummary(e)}');

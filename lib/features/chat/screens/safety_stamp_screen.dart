@@ -10,7 +10,9 @@ import '../../profile/services/safety_stamp_log_cache_service.dart';
 import '../../../services/user_service.dart';
 import '../services/chat_service.dart';
 import '../services/safety_stamp_verification_service.dart';
+import '../utils/expired_safety_stamp_cancel_gate.dart';
 import '../utils/safety_stamp_availability.dart';
+import '../utils/safety_stamp_submit_failure.dart';
 import '../widgets/safety_stamp_motion/safety_stamp_slot_motion.dart';
 import '../../../router/route_names.dart';
 
@@ -63,7 +65,8 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
   SafetyStampPhase _phase = SafetyStampPhase.meetup;
   String _currentPlaceName = '위치 정보 없음';
   bool _shouldUseGpsFallbackForPartner = false;
-  bool _isCancellingExpiredPromise = false;
+  final ExpiredSafetyStampCancelGate _expiredPromiseCancelGate =
+      ExpiredSafetyStampCancelGate();
 
   @override
   void initState() {
@@ -94,6 +97,15 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     _logCacheService = SafetyStampLogCacheService();
     _userService = UserService();
     _verificationService = SafetyStampVerificationService();
+    // AUD-06: be discoverable as soon as the screen is open, so the partner's
+    // tap can succeed before this user has tapped. Silent: it never prompts
+    // and only advertises when Bluetooth is already permitted and on.
+    unawaited(
+      _verificationService.startPresence(
+        promiseId: widget.promiseId,
+        currentUserId: widget.currentUserId,
+      ),
+    );
     _loadPartnerPlatform();
     _subscribeToSafetyStamp();
   }
@@ -194,6 +206,13 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
       final nextPartnerStamped = activeStampedUserIds.contains(
         widget.partnerId,
       );
+      if ((nextMyStamped && nextPartnerStamped) ||
+          nextPhase == SafetyStampPhase.completed) {
+        // Both sides are done with this phase: nobody needs to find this
+        // device any more. (Leaving the screen does NOT stop the presence -
+        // the partner may still be looking for it; it ends by its timeout.)
+        unawaited(_verificationService.completePresence());
+      }
       final shouldPlaySuccess =
           nextMyStamped &&
           nextPartnerStamped &&
@@ -262,18 +281,18 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
   Future<void> _cancelExpiredPromiseIfNeeded(
     Map<String, dynamic> activePromise,
   ) async {
-    if (_isCancellingExpiredPromise) return;
     if (!isMeetupSafetyStampExpired(activePromise)) return;
 
-    _isCancellingExpiredPromise = true;
-    try {
-      await _chatService.cancelExpiredIncompleteSafetyStamp(
+    // Called (unawaited) from the room listener. The server decides by its
+    // own clock, so a refusal is expected on a fast phone: never throw, and
+    // do not ask again on every snapshot.
+    await _expiredPromiseCancelGate.run(
+      widget.promiseId,
+      () => _chatService.cancelExpiredIncompleteSafetyStamp(
         roomId: widget.roomId,
         promiseId: widget.promiseId,
-      );
-    } finally {
-      _isCancellingExpiredPromise = false;
-    }
+      ),
+    );
   }
 
   Future<void> _handleStampPress() async {
@@ -348,16 +367,19 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
           longitude: verification.location?.longitude,
         ),
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _isSubmittingMyStamp = false;
       });
+      // The server may refuse a stamp (too early, window closed, meetup not
+      // confirmed yet). Say which, instead of "try again later".
+      final notice = describeSafetyStampSubmitFailure(e);
       showCupertinoDialog<void>(
         context: context,
         builder: (context) => CupertinoAlertDialog(
-          title: const Text('도장을 찍지 못했어요'),
-          content: const Text('잠시 후 다시 시도해주세요.'),
+          title: Text(notice.title),
+          content: Text(notice.message),
           actions: [
             CupertinoDialogAction(
               onPressed: () => Navigator.of(context).pop(),

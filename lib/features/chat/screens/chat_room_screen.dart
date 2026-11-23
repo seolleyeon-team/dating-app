@@ -12,6 +12,7 @@ import '../services/chat_send_controller.dart';
 import '../services/chat_service.dart';
 import '../services/message_page_merger.dart';
 import '../services/promise_place_service.dart';
+import '../utils/expired_safety_stamp_cancel_gate.dart';
 import '../utils/safety_stamp_availability.dart';
 import '../widgets/chat_report_block_flow.dart';
 import '../widgets/promise_place_picker_sheet.dart';
@@ -255,7 +256,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isPartnerBlocked = false;
   bool _isNearBottom = true;
   bool _pendingForceScrollToBottom = true;
-  bool _isCancellingExpiredPromise = false;
+  // Never throws and backs a refused promise off: this is re-evaluated on
+  // every safety-stamp timer tick and every room snapshot.
+  final ExpiredSafetyStampCancelGate _expiredPromiseCancelGate =
+      ExpiredSafetyStampCancelGate();
   DateTime _currentNow = DateTime.now();
   Timer? _safetyStampTimer;
   String? _lastMessageSnapshotSignature;
@@ -357,9 +361,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _cancelExpiredPromiseIfNeeded(
     Map<String, dynamic>? activePromise,
   ) async {
-    if (_isCancellingExpiredPromise ||
-        activePromise == null ||
-        _roomId.isEmpty) {
+    if (activePromise == null || _roomId.isEmpty) {
       return;
     }
     if (!isMeetupSafetyStampExpired(activePromise, now: _currentNow)) {
@@ -369,15 +371,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final promiseId = activePromise['promiseId']?.toString() ?? '';
     if (promiseId.isEmpty) return;
 
-    _isCancellingExpiredPromise = true;
-    try {
-      await _chatService.cancelExpiredIncompleteSafetyStamp(
+    // The server judges the timeout by ITS clock. On a phone that runs fast
+    // the request is refused; the gate swallows that and waits before it
+    // asks again for the same promise.
+    await _expiredPromiseCancelGate.run(
+      promiseId,
+      () => _chatService.cancelExpiredIncompleteSafetyStamp(
         roomId: _roomId,
         promiseId: promiseId,
-      );
-    } finally {
-      _isCancellingExpiredPromise = false;
-    }
+      ),
+    );
   }
 
   @override

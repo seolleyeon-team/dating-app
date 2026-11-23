@@ -3,6 +3,7 @@ import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { assertActiveAccountState } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 
 /**
@@ -256,6 +257,14 @@ export function createLinkKakaoFriendIdentityFunction(deps: {
       const userSnapshot = snapshots[0];
       const mappingSnapshot = snapshots[1];
       const legacySnapshot = checkLegacyDoc ? snapshots[2] : null;
+
+      // NEW-24: a suspended, banned or withdrawn account cannot bind a Kakao
+      // identity (state read in this transaction, never from the token).
+      if (userSnapshot.exists) {
+        assertActiveAccountState(
+          (userSnapshot.data() ?? {}) as Record<string, unknown>
+        );
+      }
 
       const decision = decideKakaoIdentityLink({
         authUid,

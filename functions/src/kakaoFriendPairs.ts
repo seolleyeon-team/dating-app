@@ -3,6 +3,7 @@ import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { assertActiveAccountState } from "./accountStatePolicy";
 import { withAppCheck } from "./appCheckPolicy";
 import {
   buildRecommendationExclusionPairId,
@@ -767,6 +768,8 @@ export function createCreateKakaoFriendPairsOnceFunction(
         if (!userData || userData.isStudentVerified !== true) {
           throw preconditionError("primary_email_auth_required");
         }
+        // NEW-24: no friend-pair snapshot for a restricted account.
+        assertActiveAccountState(userData);
         const decision = decideSnapshotLease({
           state: userData.kakaoFriendSnapshot,
           now: nowProvider(),
@@ -1312,6 +1315,8 @@ export async function executeSetKakaoFriendAvoidanceEnabled(
       );
     }
     const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+    // NEW-24: a restricted account cannot change its avoidance preference.
+    assertActiveAccountState(userData);
     const started = buildAvoidanceMutationStart({
       currentMutation: userData[AVOIDANCE_MUTATION_FIELD],
       desired: enabled,
